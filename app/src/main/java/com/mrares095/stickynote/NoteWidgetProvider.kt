@@ -3,6 +3,8 @@ package com.mrares095.stickynote
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
+import android.content.Intent
+import android.app.PendingIntent
 import android.content.Context
 import android.widget.RemoteViews
 import org.json.JSONArray
@@ -35,6 +37,15 @@ class NoteWidgetProvider : AppWidgetProvider() {
             val selectedId = prefs.getLong("widget_note_${widgetId}", -1L)
             val note = notes.firstOrNull { it.id == selectedId } ?: notes.firstOrNull()
             val views = RemoteViews(context.packageName, R.layout.widget_note)
+            val launchIntent = Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                if (note != null) putExtra("open_note_id", note.id)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context, widgetId, launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.widget_root, pendingIntent)
             views.setTextViewText(R.id.widget_title, note?.title?.ifBlank { "Bez naslova" } ?: "Sticky & Note")
             views.setTextViewText(R.id.widget_text, note?.text ?: "Nema spremljenih bilješki.")
             manager.updateAppWidget(widgetId, views)
