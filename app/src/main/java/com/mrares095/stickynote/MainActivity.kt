@@ -33,7 +33,8 @@ data class Note(
     val color: Long = 0xFF252525,
     val pinned: Boolean = false,
     val keepId: String? = null,
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val trashed: Boolean = false
 )
 
 const val PREFS = "sticky_note_data"
@@ -69,7 +70,8 @@ private fun loadNotes(context: Context): List<Note> {
             o.optLong("color", 0xFF252525),
             o.optBoolean("pinned", false),
             o.optString("keepId").takeIf { value -> value.isNotBlank() },
-            o.optLong("updatedAt", System.currentTimeMillis())
+            o.optLong("updatedAt", System.currentTimeMillis()),
+            o.optBoolean("trashed", o.optString("category") == "🗑 Otpad")
         )
     }
 }
@@ -87,6 +89,7 @@ private fun saveNotes(context: Context, values: List<Note>) {
             put("pinned", n.pinned)
             put("keepId", n.keepId ?: "")
             put("updatedAt", n.updatedAt)
+            put("trashed", n.trashed)
         })
     }
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(NOTES, a.toString()).apply()
@@ -295,7 +298,22 @@ fun StickyNoteApp(
 
     fun deleteNote(note: Note) {
         val now = System.currentTimeMillis()
-        persistNotes(notes.map { if (it.id == note.id) it.copy(category = "🗑 Otpad", updatedAt = now) else it })
+        persistNotes(notes.map { if (it.id == note.id) it.copy(trashed = true, updatedAt = now) else it })
+    }
+
+    fun restoreNote(note: Note) {
+        val now = System.currentTimeMillis()
+        persistNotes(notes.map {
+            if (it.id == note.id) it.copy(
+                category = if (it.category == "🗑 Otpad" || it.category == "Sve") "Osobno" else it.category,
+                trashed = false,
+                updatedAt = now
+            ) else it
+        })
+    }
+
+    fun permanentlyDeleteNote(note: Note) {
+        persistNotes(notes.filterNot { it.id == note.id })
     }
 
     fun persistCategories(v: List<String>) {
@@ -368,9 +386,9 @@ fun StickyNoteApp(
                 }
 
                 val categoryNotes = when {
-                    trashOnly -> notes.filter { it.category == "🗑 Otpad" }
-                    selected == "Sve" -> notes.filter { it.category != "🗑 Otpad" }
-                    else -> notes.filter { it.category == selected }
+                    trashOnly -> notes.filter { it.trashed }
+                    selected == "Sve" -> notes.filter { !it.trashed }
+                    else -> notes.filter { !it.trashed && it.category == selected }
                 }
                 val q = search.trim().lowercase()
                 val searched = if (q.isEmpty()) categoryNotes else categoryNotes.filter {
@@ -403,8 +421,13 @@ fun StickyNoteApp(
                                             if (it.id == note.id) it.copy(pinned = !it.pinned, updatedAt = System.currentTimeMillis()) else it
                                         })
                                     }) { Text(if (note.pinned) "📌" else "📍") }
-                                    TextButton(onClick = { editing = note }) { Text("Uredi") }
-                                    TextButton(onClick = { deleteNote(note) }) { Text("Obriši") }
+                                    if (trashOnly) {
+                                        TextButton(onClick = { restoreNote(note) }) { Text("Vrati") }
+                                        TextButton(onClick = { permanentlyDeleteNote(note) }) { Text("Trajno obriši") }
+                                    } else {
+                                        TextButton(onClick = { editing = note }) { Text("Uredi") }
+                                        TextButton(onClick = { deleteNote(note) }) { Text("Obriši") }
+                                    }
                                 }
                             }
                         }
@@ -450,8 +473,9 @@ fun StickyNoteApp(
                                 (notes.filterNot { it.id == note.id }) + note.copy(
                                     title = title,
                                     text = body,
-                                    category = cat,
+                                    category = if (cat == "🗑 Otpad") "Osobno" else cat,
                                     color = noteColor,
+                                    trashed = false,
                                     updatedAt = System.currentTimeMillis()
                                 )
                             )
