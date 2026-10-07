@@ -33,8 +33,24 @@ jobs:
         env:
           KEYSTORE_B64: ${{ secrets.STICKY_KEYSTORE_BASE64 }}
         run: |
+          set -euo pipefail
           mkdir -p "$HOME/.android"
-          echo "$KEYSTORE_B64" | base64 --decode > "$HOME/.android/sticky-notes-release.jks"
+
+          # Normalize whitespace/line wrapping and restore missing Base64 padding.
+          KEYSTORE_B64_CLEAN="$(printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]')"
+          REMAINDER=${#KEYSTORE_B64_CLEAN} % 4
+          if [ "$REMAINDER" -eq 2 ]; then
+            KEYSTORE_B64_CLEAN="$KEYSTORE_B64_CLEAN=="
+          elif [ "$REMAINDER" -eq 3 ]; then
+            KEYSTORE_B64_CLEAN="$KEYSTORE_B64_CLEAN="
+          elif [ "$REMAINDER" -eq 1 ]; then
+            echo "Invalid STICKY_KEYSTORE_BASE64 secret length."
+            exit 1
+          fi
+
+          printf '%s' "$KEYSTORE_B64_CLEAN" | base64 --decode > "$HOME/.android/sticky-notes-release.jks"
+          test -s "$HOME/.android/sticky-notes-release.jks"
+
           cat > keystore.properties <<EOF
           storeFile=$HOME/.android/sticky-notes-release.jks
           storePassword=${{ secrets.STICKY_KEYSTORE_PASSWORD }}
@@ -73,7 +89,7 @@ jobs:
           name: Sticky & Note v${{ steps.version.outputs.version_name }}
           body: |
             Automatski build za commit ${{ github.sha }}.
-            
+
             APK je potpisan trajnim signing ključem aplikacije i može se instalirati kao nadogradnja postojeće verzije.
           files: app/build/outputs/apk/release/*.apk
           generate_release_notes: true
