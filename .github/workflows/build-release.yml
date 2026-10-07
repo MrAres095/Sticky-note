@@ -1,10 +1,10 @@
-name: Build signed APK
+name: Build and release signed APK
 
 on:
-  workflow_dispatch:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,11 +12,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -41,18 +42,38 @@ jobs:
           keyPassword=${{ secrets.STICKY_KEY_PASSWORD }}
           EOF
 
+      - name: Set automatic app version
+        id: version
+        shell: bash
+        run: |
+          VERSION_NAME="1.0.${{ github.run_number }}"
+          VERSION_CODE="${{ github.run_number }}"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
       - name: Build signed release APK
-        run: gradle --no-daemon :app:assembleRelease
+        run: |
+          gradle --no-daemon :app:assembleRelease \
+            -PversionCode=${{ steps.version.outputs.version_code }} \
+            -PversionName=${{ steps.version.outputs.version_name }}
 
       - name: Publish APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sticky-note-release
+          name: sticky-note-release-v${{ steps.version.outputs.version_name }}
           path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.version.outputs.version_name }}
+          target_commitish: ${{ github.sha }}
+          name: Sticky & Note v${{ steps.version.outputs.version_name }}
+          body: |
+            Automatski build za commit ${{ github.sha }}.
+            
+            APK je potpisan trajnim signing ključem aplikacije i može se instalirati kao nadogradnja postojeće verzije.
           files: app/build/outputs/apk/release/*.apk
           generate_release_notes: true
