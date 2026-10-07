@@ -28,7 +28,7 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
-      - name: Prepare signing key
+      - name: Prepare signing key and diagnose secret
         shell: bash
         env:
           KEYSTORE_B64: ${{ secrets.STICKY_KEYSTORE_BASE64 }}
@@ -39,14 +39,38 @@ jobs:
           set -euo pipefail
           mkdir -p "$HOME/.android"
           KEYSTORE_B64_CLEAN="$(printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]')"
+          export KEYSTORE_B64_CLEAN
 
-          python3 scripts/recover_jks.py             "$KEYSTORE_B64_CLEAN"             "$KEYSTORE_PASSWORD"             "$HOME/.android/sticky-notes-release.jks"
+          python3 - <<'PY'
+          import base64, binascii, os, re, sys
+          s = os.environ["KEYSTORE_B64_CLEAN"]
+          print("Signing secret diagnostics (secret value is never printed):")
+          print(f"- Base64 length: {len(s)}")
+          print(f"- Length modulo 4: {len(s) % 4}")
+          print(f"- Valid Base64 character set: {bool(re.fullmatch(r'[A-Za-z0-9+/]*={0,2}', s))}")
+          try:
+              raw = base64.b64decode(s, validate=True)
+          except Exception as e:
+              print(f"- Base64 decode: FAILED ({type(e).__name__})")
+              print(f"- Decode detail: {e}")
+              sys.exit(1)
+          print("- Base64 decode: OK")
+          print(f"- Decoded bytes: {len(raw)}")
+          print(f"- JKS magic: {'OK' if raw[:4] == bytes.fromhex('FEEDFEED') else 'FAILED'}")
+          print(f"- Last 4 bytes: {raw[-4:].hex().upper()}")
+          open(os.path.expanduser("~/.android/sticky-notes-release.jks"), "wb").write(raw)
+          PY
 
-          keytool -list             -keystore "$HOME/.android/sticky-notes-release.jks"             -storepass "$KEYSTORE_PASSWORD"             -alias "$KEY_ALIAS"             >/tmp/sticky-keytool-check.txt 2>&1 || {
-              echo "Signing keystore validation failed:"
-              cat /tmp/sticky-keytool-check.txt
-              exit 1
-            }
+          KEYTOOL_LOG=/tmp/sticky-keytool-check.txt
+          if ! keytool -list               -keystore "$HOME/.android/sticky-notes-release.jks"               -storepass "$KEYSTORE_PASSWORD"               -alias "$KEY_ALIAS"               >/tmp/sticky-keytool-out.txt 2>"$KEYTOOL_LOG"; then
+            echo "Signing keystore validation FAILED."
+            cat "$KEYTOOL_LOG"
+            echo "This means the stored Base64 decodes, but the JKS cannot be opened with the configured signing credentials."
+            exit 1
+          fi
+
+          echo "Signing keystore validation: OK"
+          echo "Signing alias validation: OK"
 
           cat > keystore.properties <<EOF
           storeFile=$HOME/.android/sticky-notes-release.jks
