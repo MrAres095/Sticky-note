@@ -4,8 +4,40 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-android { namespace = "com.mrares095.stickynote"; compileSdk = 35
-    defaultConfig { applicationId = "com.mrares095.stickynote"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "1.0.0" }
+val signingPropertiesFile = rootProject.file("keystore.properties")
+val signingProperties = java.util.Properties()
+if (signingPropertiesFile.exists()) signingPropertiesFile.inputStream().use { signingProperties.load(it) }
+
+android {
+    namespace = "com.mrares095.stickynote"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.mrares095.stickynote"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            if (signingPropertiesFile.exists()) {
+                storeFile = file(signingProperties["storeFile"]!!)
+                storePassword = signingProperties["storePassword"] as String
+                keyAlias = signingProperties["keyAlias"] as String
+                keyPassword = signingProperties["keyPassword"] as String
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+        }
+    }
+
     buildFeatures { compose = true }
 }
 
