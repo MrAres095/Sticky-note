@@ -5,11 +5,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.KeyboardType
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -53,6 +55,7 @@ fun StickyNoteApp(context: Context) {
     var newTabName by remember { mutableStateOf("") }
     var showRenameTab by remember { mutableStateOf<String?>(null) }
     var renameText by remember { mutableStateOf("") }
+    var search by remember { mutableStateOf("") }
 
     fun persistNotes(v: List<Note>) { notes=v; saveNotes(context,v); NoteWidgetProvider.updateAll(context) }
     fun persistCategories(v: List<String>) { categories=v; saveCategories(context,v); if (!v.contains(selected)) selected=v.first() }
@@ -69,8 +72,11 @@ fun StickyNoteApp(context: Context) {
                     }
                     Tab(selected=false,onClick={showAddTab=true},text={Text("+")})
                 }
+                OutlinedTextField(value=search,onValueChange={search=it},modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=6.dp),singleLine=true,label={Text("Pretraži bilješke")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Text))
                 if (selected != "Sve") TextButton(onClick={showRenameTab=selected; renameText=selected}, modifier=Modifier.padding(horizontal=12.dp)) { Text("Preimenuj tab: $selected") }
-                val shown=if(selected=="Sve") notes else notes.filter{it.category==selected}
+                val categoryNotes=if(selected=="Sve") notes else notes.filter{it.category==selected}
+                val q=search.trim().lowercase()
+                val shown=if(q.isEmpty()) categoryNotes else categoryNotes.filter{it.title.lowercase().contains(q)||it.text.lowercase().contains(q)}
                 LazyVerticalGrid(columns=GridCells.Adaptive(160.dp),contentPadding=PaddingValues(12.dp)) {
                     items(shown,key={it.id}) { note ->
                         Card(Modifier.padding(6.dp)) {
