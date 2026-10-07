@@ -57,6 +57,7 @@ fun StickyNoteApp(context: Context) {
     var renameText by remember { mutableStateOf("") }
     var search by remember { mutableStateOf("") }
     var favoritesOnly by remember { mutableStateOf(false) }
+    var pinnedOnly by remember { mutableStateOf(false) }
 
     fun persistNotes(v: List<Note>) { notes=v; saveNotes(context,v); NoteWidgetProvider.updateAll(context) }
     fun persistCategories(v: List<String>) { categories=v; saveCategories(context,v); if (!v.contains(selected)) selected=v.first() }
@@ -79,7 +80,8 @@ fun StickyNoteApp(context: Context) {
                 val categoryNotes=if(selected=="Sve") notes else notes.filter{it.category==selected}
                 val q=search.trim().lowercase()
                 val searched=if(q.isEmpty()) categoryNotes else categoryNotes.filter{it.title.lowercase().contains(q)||it.text.lowercase().contains(q)}
-                val shown=if(favoritesOnly) searched.filter{it.favorite} else searched
+                val filtered=if(favoritesOnly) searched.filter{it.favorite} else searched
+                val shown=if(pinnedOnly) filtered.sortedByDescending{it.favorite} else filtered.sortedByDescending{it.favorite}
                 LazyVerticalGrid(columns=GridCells.Adaptive(160.dp),contentPadding=PaddingValues(12.dp)) {
                     items(shown,key={it.id}) { note ->
                         Card(Modifier.padding(6.dp),colors=CardDefaults.cardColors(containerColor=androidx.compose.ui.graphics.Color(note.color))) {
@@ -89,6 +91,7 @@ fun StickyNoteApp(context: Context) {
                                 Spacer(Modifier.height(10.dp))
                                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
                                     TextButton(onClick={persistNotes(notes.map{if(it.id==note.id)it.copy(favorite=!it.favorite)else it})}){Text(if(note.favorite)"★" else "☆")}
+                                    TextButton(onClick={pinnedOnly=!pinnedOnly}){Text(if(note.favorite && pinnedOnly)"Prikvačeno" else "")}
                                     TextButton(onClick={editing=note}){Text("Uredi")}
                                     TextButton(onClick={persistNotes(notes.filterNot{it.id==note.id})}){Text("Obriši")}
                                 }
