@@ -32,30 +32,61 @@ jobs:
         shell: bash
         env:
           KEYSTORE_B64: ${{ secrets.STICKY_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.STICKY_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.STICKY_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.STICKY_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.android"
 
-          # Normalize whitespace/line wrapping and restore missing Base64 padding.
-          KEYSTORE_B64_CLEAN="$(printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]')"
-          REMAINDER=$(( ${#KEYSTORE_B64_CLEAN} % 4 ))
-          if [ "$REMAINDER" -eq 2 ]; then
-            KEYSTORE_B64_CLEAN="$KEYSTORE_B64_CLEAN=="
-          elif [ "$REMAINDER" -eq 3 ]; then
-            KEYSTORE_B64_CLEAN="$KEYSTORE_B64_CLEAN="
-          elif [ "$REMAINDER" -eq 1 ]; then
-            echo "Invalid STICKY_KEYSTORE_BASE64 secret length."
-            exit 1
-          fi
+          python3 - <<'PY'
+          import base64, os, re, sys
 
-          printf '%s' "$KEYSTORE_B64_CLEAN" | base64 --decode > "$HOME/.android/sticky-notes-release.jks"
-          test -s "$HOME/.android/sticky-notes-release.jks"
+          raw = os.environ.get("KEYSTORE_B64", "")
+          clean = re.sub(r"[^A-Za-z0-9+/=]", "", raw)
+
+          print(
+              f"Signing key secret received: raw={len(raw)} chars, "
+              f"base64={len(clean)} chars, mod4={len(clean) % 4}"
+          )
+
+          if not clean:
+              raise SystemExit("Signing key secret is empty.")
+
+          if len(clean) % 4 == 1:
+              raise SystemExit(
+                  "Signing key secret is incomplete/invalid Base64 "
+                  "(length mod 4 = 1)."
+              )
+
+          clean += "=" * ((4 - len(clean) % 4) % 4)
+
+          try:
+              data = base64.b64decode(clean, validate=True)
+          except Exception as exc:
+              raise SystemExit(f"Signing key secret is not valid Base64: {exc}")
+
+          path = os.path.expanduser("~/.android/sticky-notes-release.jks")
+          with open(path, "wb") as f:
+              f.write(data)
+
+          print(f"Decoded signing keystore: {len(data)} bytes")
+
+          if len(data) < 32:
+              raise SystemExit("Decoded signing keystore is unexpectedly small.")
+          PY
+
+          keytool -list             -keystore "$HOME/.android/sticky-notes-release.jks"             -storepass "$KEYSTORE_PASSWORD"             -alias "$KEY_ALIAS"             >/tmp/sticky-keytool-check.txt 2>&1 || {
+              echo "Signing keystore validation failed:"
+              cat /tmp/sticky-keytool-check.txt
+              exit 1
+            }
 
           cat > keystore.properties <<EOF
           storeFile=$HOME/.android/sticky-notes-release.jks
-          storePassword=${{ secrets.STICKY_KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.STICKY_KEY_ALIAS }}
-          keyPassword=${{ secrets.STICKY_KEY_PASSWORD }}
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
           EOF
 
       - name: Set automatic app version
@@ -69,9 +100,7 @@ jobs:
 
       - name: Build signed release APK
         run: |
-          gradle --no-daemon :app:assembleRelease \
-            -PversionCode=${{ steps.version.outputs.version_code }} \
-            -PversionName=${{ steps.version.outputs.version_name }}
+          gradle --no-daemon :app:assembleRelease             -PversionCode=${{ steps.version.outputs.version_code }}             -PversionName=${{ steps.version.outputs.version_name }}
 
       - name: Publish APK artifact
         uses: actions/upload-artifact@v4
