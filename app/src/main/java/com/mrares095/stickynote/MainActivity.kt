@@ -65,12 +65,11 @@ fun StickyNoteApp(context: Context) {
             Column(Modifier.padding(padding).fillMaxSize()) {
                 ScrollableTabRow(selectedTabIndex=categories.indexOf(selected).coerceAtLeast(0)) {
                     categories.forEach { category ->
-                        Tab(selected=selected==category,onClick={selected=category},text={Text(category)},
-                            onDoubleClick = { if(category!="Sve"){ showRenameTab=category; renameText=category } })
+                        Tab(selected=selected==category,onClick={selected=category},text={Text(category)})
                     }
                     Tab(selected=false,onClick={showAddTab=true},text={Text("+")})
                 }
-                Text("Dugo pritisni/dvoklikni naziv taba za preimenovanje", style=MaterialTheme.typography.labelSmall, modifier=Modifier.padding(horizontal=16.dp,vertical=6.dp))
+                if (selected != "Sve") TextButton(onClick={showRenameTab=selected; renameText=selected}, modifier=Modifier.padding(horizontal=12.dp)) { Text("Preimenuj tab: $selected") }
                 val shown=if(selected=="Sve") notes else notes.filter{it.category==selected}
                 LazyVerticalGrid(columns=GridCells.Adaptive(160.dp),contentPadding=PaddingValues(12.dp)) {
                     items(shown,key={it.id}) { note ->
