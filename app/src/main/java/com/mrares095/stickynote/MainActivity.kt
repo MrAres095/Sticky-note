@@ -122,7 +122,8 @@ class MainActivity : ComponentActivity() {
                 onDismissMessage = { keepStatusMessage = null },
                 onConnectKeep = { authorizeKeep(false) },
                 onSyncKeep = { authorizeKeep(true) },
-                onCheckUpdate = { checkForUpdate() }
+                onCheckUpdate = { checkForUpdate() },
+                openNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
             )
         }
     }
@@ -264,7 +265,8 @@ fun StickyNoteApp(
     onDismissMessage: () -> Unit,
     onConnectKeep: () -> Unit,
     onSyncKeep: () -> Unit,
-    onCheckUpdate: () -> Unit
+    onCheckUpdate: () -> Unit,
+    openNoteId: Long? = null
 ) {
     var categories by remember { mutableStateOf(loadCategories(context)) }
     var selected by remember { mutableStateOf(categories.first()) }
@@ -277,6 +279,12 @@ fun StickyNoteApp(
     var search by remember { mutableStateOf("") }
     var favoritesOnly by remember { mutableStateOf(false) }
     var pinnedOnly by remember { mutableStateOf(false) }
+
+    LaunchedEffect(openNoteId, notes) {
+        if (openNoteId != null && editing == null) {
+            notes.firstOrNull { it.id == openNoteId }?.let { editing = it }
+        }
+    }
 
     fun persistNotes(v: List<Note>) {
         notes = v
