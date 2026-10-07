@@ -17,14 +17,12 @@ Add these repository secrets in GitHub:
 - `STICKY_KEY_ALIAS` — `sticky-notes-release`
 - `STICKY_KEY_PASSWORD` — key password
 
-The workflow at `.github/workflows/build-release.yml` creates a signed release APK and, for tags such as `v1.0.1`, publishes the APK as a GitHub Release.
+The workflow at `.github/workflows/build-release.yml` automatically builds a signed APK on every push to `main`, stores it as an artifact, and publishes it as a GitHub Release.
 
 ### Versioning
 
-Before a new release, increase both:
-- `versionCode` (must always increase)
-- `versionName`
-
-Then create a tag such as `v1.0.1`.
+GitHub Actions automatically assigns an increasing `versionCode` and `1.0.x` version name for each build.
 
 Never commit the JKS, passwords, or `keystore.properties`.
+
+<!-- CI trigger test -->
