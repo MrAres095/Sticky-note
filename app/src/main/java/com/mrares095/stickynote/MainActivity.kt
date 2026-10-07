@@ -239,9 +239,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private object KeepUiEvents {
-    var message: String? = null
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -264,12 +261,6 @@ fun StickyNoteApp(
     var search by remember { mutableStateOf("") }
     var favoritesOnly by remember { mutableStateOf(false) }
     var pinnedOnly by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf(KeepUiEvents.message) }
-
-    LaunchedEffect(KeepUiEvents.message) {
-        message = KeepUiEvents.message
-        KeepUiEvents.message = null
-    }
 
     fun persistNotes(v: List<Note>) {
         notes = v
