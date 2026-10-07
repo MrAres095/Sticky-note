@@ -2,6 +2,8 @@ package com.mrares095.stickynote
 
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.FileProvider
 import org.json.JSONObject
 import java.io.File
@@ -63,8 +65,10 @@ object UpdateManager {
                     data = uri
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                context.startActivity(intent)
-                onStatus("APK je spreman za instalaciju.")
+                Handler(Looper.getMainLooper()).post {
+                    context.startActivity(intent)
+                    onStatus("APK je spreman za instalaciju.")
+                }
             } catch (e: Exception) {
                 onStatus("Preuzimanje ažuriranja nije uspjelo: " + (e.message ?: "greška"))
             }
