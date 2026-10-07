@@ -279,6 +279,7 @@ fun StickyNoteApp(
     var search by remember { mutableStateOf("") }
     var favoritesOnly by remember { mutableStateOf(false) }
     var pinnedOnly by remember { mutableStateOf(false) }
+    var trashOnly by remember { mutableStateOf(false) }
 
     LaunchedEffect(openNoteId, notes) {
         if (openNoteId != null && editing == null) {
@@ -290,6 +291,11 @@ fun StickyNoteApp(
         notes = v
         saveNotes(context, v)
         NoteWidgetProvider.updateAll(context)
+    }
+
+    fun deleteNote(note: Note) {
+        val now = System.currentTimeMillis()
+        persistNotes(notes.map { if (it.id == note.id) it.copy(category = "🗑 Otpad", updatedAt = now) else it })
     }
 
     fun persistCategories(v: List<String>) {
@@ -349,6 +355,9 @@ fun StickyNoteApp(
                         TextButton(onClick = { pinnedOnly = !pinnedOnly }) {
                             Text(if (pinnedOnly) "📌 Prikvačeno" else "📌 Sve")
                         }
+                        TextButton(onClick = { trashOnly = !trashOnly }) {
+                            Text(if (trashOnly) "🗑 Otpad" else "🗑")
+                        }
                     }
                     if (selected != "Sve") {
                         TextButton(onClick = {
@@ -358,7 +367,11 @@ fun StickyNoteApp(
                     }
                 }
 
-                val categoryNotes = if (selected == "Sve") notes else notes.filter { it.category == selected }
+                val categoryNotes = when {
+                    trashOnly -> notes.filter { it.category == "🗑 Otpad" }
+                    selected == "Sve" -> notes.filter { it.category != "🗑 Otpad" }
+                    else -> notes.filter { it.category == selected }
+                }
                 val q = search.trim().lowercase()
                 val searched = if (q.isEmpty()) categoryNotes else categoryNotes.filter {
                     it.title.lowercase().contains(q) || it.text.lowercase().contains(q)
@@ -391,7 +404,7 @@ fun StickyNoteApp(
                                         })
                                     }) { Text(if (note.pinned) "📌" else "📍") }
                                     TextButton(onClick = { editing = note }) { Text("Uredi") }
-                                    TextButton(onClick = { persistNotes(notes.filterNot { it.id == note.id }) }) { Text("Obriši") }
+                                    TextButton(onClick = { deleteNote(note) }) { Text("Obriši") }
                                 }
                             }
                         }
