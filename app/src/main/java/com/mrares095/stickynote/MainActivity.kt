@@ -121,7 +121,8 @@ class MainActivity : ComponentActivity() {
                 message = keepStatusMessage,
                 onDismissMessage = { keepStatusMessage = null },
                 onConnectKeep = { authorizeKeep(false) },
-                onSyncKeep = { authorizeKeep(true) }
+                onSyncKeep = { authorizeKeep(true) },
+                onCheckUpdate = { checkForUpdate() }
             )
         }
     }
@@ -234,6 +235,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun checkForUpdate() {
+        showKeepMessage("Provjeravam ažuriranje…")
+        UpdateManager.check(this) { message, apkUrl ->
+            runOnUiThread {
+                if (apkUrl != null) {
+                    keepStatusMessage = message + " Preuzimam…"
+                    UpdateManager.downloadAndInstall(this, apkUrl) { status -> showKeepMessage(status) }
+                } else {
+                    keepStatusMessage = message
+                }
+            }
+        }
+    }
+
     private fun showKeepMessage(message: String) {
         runOnUiThread { keepStatusMessage = message }
     }
@@ -248,7 +263,8 @@ fun StickyNoteApp(
     message: String?,
     onDismissMessage: () -> Unit,
     onConnectKeep: () -> Unit,
-    onSyncKeep: () -> Unit
+    onSyncKeep: () -> Unit,
+    onCheckUpdate: () -> Unit
 ) {
     var categories by remember { mutableStateOf(loadCategories(context)) }
     var selected by remember { mutableStateOf(categories.first()) }
@@ -282,6 +298,7 @@ fun StickyNoteApp(
                     actions = {
                         TextButton(onClick = onConnectKeep) { Text(if (keepConnected) "Keep ✓" else "Google Keep") }
                         TextButton(onClick = onSyncKeep) { Text("Sync") }
+                        TextButton(onClick = onCheckUpdate) { Text("Ažuriraj") }
                     }
                 )
             },
