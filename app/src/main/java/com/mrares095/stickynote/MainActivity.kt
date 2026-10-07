@@ -15,7 +15,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class Note(val id: Long, val title: String, val text: String, val category: String)
+data class Note(val id: Long, val title: String, val text: String, val category: String, val favorite: Boolean = false)
 
 private const val PREFS = "sticky_note_data"
 private const val NOTES = "notes"
@@ -32,11 +32,11 @@ private fun saveCategories(context: Context, values: List<String>) {
 private fun loadNotes(context: Context): List<Note> {
     val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(NOTES, null) ?: return listOf(Note(1L, "Dobrodošli", "Ovo je tvoja nova Sticky & Note bilješka.", "Osobno"))
     val a = JSONArray(raw); return List(a.length()) {
-        val o=a.getJSONObject(it); Note(o.getLong("id"), o.getString("title"), o.getString("text"), o.getString("category"))
+        val o=a.getJSONObject(it); Note(o.getLong("id"), o.getString("title"), o.getString("text"), o.getString("category"), o.optBoolean("favorite", false))
     }
 }
 private fun saveNotes(context: Context, values: List<Note>) {
-    val a=JSONArray(); values.forEach { n -> a.put(JSONObject().apply { put("id",n.id); put("title",n.title); put("text",n.text); put("category",n.category) }) }
+    val a=JSONArray(); values.forEach { n -> a.put(JSONObject().apply { put("id",n.id); put("title",n.title); put("text",n.text); put("category",n.category); put("favorite",n.favorite) }) }
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(NOTES,a.toString()).apply()
 }
 
@@ -56,6 +56,7 @@ fun StickyNoteApp(context: Context) {
     var showRenameTab by remember { mutableStateOf<String?>(null) }
     var renameText by remember { mutableStateOf("") }
     var search by remember { mutableStateOf("") }
+    var favoritesOnly by remember { mutableStateOf(false) }
 
     fun persistNotes(v: List<Note>) { notes=v; saveNotes(context,v); NoteWidgetProvider.updateAll(context) }
     fun persistCategories(v: List<String>) { categories=v; saveCategories(context,v); if (!v.contains(selected)) selected=v.first() }
@@ -73,10 +74,12 @@ fun StickyNoteApp(context: Context) {
                     Tab(selected=false,onClick={showAddTab=true},text={Text("+")})
                 }
                 OutlinedTextField(value=search,onValueChange={search=it},modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=6.dp),singleLine=true,label={Text("Pretraži bilješke")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Text))
-                if (selected != "Sve") TextButton(onClick={showRenameTab=selected; renameText=selected}, modifier=Modifier.padding(horizontal=12.dp)) { Text("Preimenuj tab: $selected") }
+                Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),horizontalArrangement=Arrangement.SpaceBetween) { TextButton(onClick={favoritesOnly=!favoritesOnly}) { Text(if(favoritesOnly)"★ Favoriti" else "☆ Svi") }; if (selected != "Sve") TextButton(onClick={showRenameTab=selected; renameText=selected}, modifier=Modifier.padding(horizontal=12.dp)) { Text("Preimenuj tab: $selected") } }
+                if (selected != "Sve") Spacer(Modifier.height(2.dp))
                 val categoryNotes=if(selected=="Sve") notes else notes.filter{it.category==selected}
                 val q=search.trim().lowercase()
-                val shown=if(q.isEmpty()) categoryNotes else categoryNotes.filter{it.title.lowercase().contains(q)||it.text.lowercase().contains(q)}
+                val searched=if(q.isEmpty()) categoryNotes else categoryNotes.filter{it.title.lowercase().contains(q)||it.text.lowercase().contains(q)}
+                val shown=if(favoritesOnly) searched.filter{it.favorite} else searched
                 LazyVerticalGrid(columns=GridCells.Adaptive(160.dp),contentPadding=PaddingValues(12.dp)) {
                     items(shown,key={it.id}) { note ->
                         Card(Modifier.padding(6.dp)) {
@@ -85,6 +88,7 @@ fun StickyNoteApp(context: Context) {
                                 Spacer(Modifier.height(8.dp)); Text(note.text,maxLines=8)
                                 Spacer(Modifier.height(10.dp))
                                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
+                                    TextButton(onClick={persistNotes(notes.map{if(it.id==note.id)it.copy(favorite=!it.favorite)else it})}){Text(if(note.favorite)"★" else "☆")}
                                     TextButton(onClick={editing=note}){Text("Uredi")}
                                     TextButton(onClick={persistNotes(notes.filterNot{it.id==note.id})}){Text("Obriši")}
                                 }
@@ -106,7 +110,7 @@ fun StickyNoteApp(context: Context) {
                     Row { categories.filter{it!="Sve"}.forEach { c -> TextButton(onClick={cat=c}){Text(c)} } }
                 }
             },confirmButton={TextButton(onClick={
-                if(title.isNotBlank()||body.isNotBlank()) persistNotes((notes.filterNot{it.id==note.id})+Note(note.id,title,body,cat))
+                if(title.isNotBlank()||body.isNotBlank()) persistNotes((notes.filterNot{it.id==note.id})+Note(note.id,title,body,cat,note.favorite))
                 editing=null
             }){Text("Spremi")}},dismissButton={TextButton(onClick={editing=null}){Text("Odustani")}})
         }
