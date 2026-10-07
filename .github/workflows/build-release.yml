@@ -38,7 +38,7 @@ jobs:
 
           # Normalize whitespace/line wrapping and restore missing Base64 padding.
           KEYSTORE_B64_CLEAN="$(printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]')"
-          REMAINDER=${#KEYSTORE_B64_CLEAN} % 4
+          REMAINDER=$(( ${#KEYSTORE_B64_CLEAN} % 4 ))
           if [ "$REMAINDER" -eq 2 ]; then
             KEYSTORE_B64_CLEAN="$KEYSTORE_B64_CLEAN=="
           elif [ "$REMAINDER" -eq 3 ]; then
