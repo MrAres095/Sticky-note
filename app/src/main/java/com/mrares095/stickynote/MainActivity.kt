@@ -36,9 +36,9 @@ data class Note(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
-private const val PREFS = "sticky_note_data"
-private const val NOTES = "notes"
-private const val CATEGORIES = "categories"
+const val PREFS = "sticky_note_data"
+const val NOTES = "notes"
+const val CATEGORIES = "categories"
 private const val KEEP_SCOPE = "https://www.googleapis.com/auth/keep"
 
 private fun loadCategories(context: Context): List<String> {
