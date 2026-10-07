@@ -285,6 +285,8 @@ fun StickyNoteApp(
     var pinnedOnly by remember { mutableStateOf(false) }
     var trashOnly by remember { mutableStateOf(false) }
     var confirmPermanentDelete by remember { mutableStateOf<Note?>(null) }
+    var confirmEmptyTrash by remember { mutableStateOf(false) }
+    var confirmDeleteCategory by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(openNoteId, notes) {
         if (openNoteId != null && editing == null) {
@@ -316,6 +318,26 @@ fun StickyNoteApp(
 
     fun permanentlyDeleteNote(note: Note) {
         persistNotes(notes.filterNot { it.id == note.id })
+    }
+
+    fun emptyTrash() {
+        persistNotes(notes.filterNot { it.trashed })
+    }
+
+    fun deleteCategory(category: String) {
+        if (category == "Sve") return
+        val fallback = categories.firstOrNull { it != "Sve" && it != category } ?: "Osobno"
+        val nextCategories = if (fallback == "Osobno" && !categories.contains("Osobno")) {
+            categories.filterNot { it == category } + "Osobno"
+        } else {
+            categories.filterNot { it == category }
+        }
+        persistCategories(nextCategories)
+        persistNotes(notes.map {
+            if (it.category == category) it.copy(category = fallback, updatedAt = System.currentTimeMillis()) else it
+        })
+        selected = fallback
+        trashOnly = false
     }
 
     fun persistCategories(v: List<String>) {
@@ -384,6 +406,10 @@ fun StickyNoteApp(
                             showRenameTab = selected
                             renameText = selected
                         }) { Text("Preimenuj") }
+                        TextButton(onClick = { confirmDeleteCategory = selected }) { Text("Obriši") }
+                    }
+                    if (trashOnly && notes.any { it.trashed }) {
+                        TextButton(onClick = { confirmEmptyTrash = true }) { Text("Isprazni otpad") }
                     }
                 }
 
@@ -501,6 +527,36 @@ fun StickyNoteApp(
                     }) { Text("Trajno obriši") }
                 },
                 dismissButton = { TextButton(onClick = { confirmPermanentDelete = null }) { Text("Odustani") } }
+            )
+        }
+
+        if (confirmEmptyTrash) {
+            AlertDialog(
+                onDismissRequest = { confirmEmptyTrash = false },
+                title = { Text("Isprazni otpad") },
+                text = { Text("Trajno ćeš obrisati sve bilješke iz otpada. Ova radnja se ne može poništiti.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        emptyTrash()
+                        confirmEmptyTrash = false
+                    }) { Text("Isprazni otpad") }
+                },
+                dismissButton = { TextButton(onClick = { confirmEmptyTrash = false }) { Text("Odustani") } }
+            )
+        }
+
+        confirmDeleteCategory?.let { category ->
+            AlertDialog(
+                onDismissRequest = { confirmDeleteCategory = null },
+                title = { Text("Obriši kategoriju") },
+                text = { Text("Kategorija \"$category\" će biti uklonjena. Bilješke iz nje bit će premještene u drugu kategoriju.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        deleteCategory(category)
+                        confirmDeleteCategory = null
+                    }) { Text("Obriši") }
+                },
+                dismissButton = { TextButton(onClick = { confirmDeleteCategory = null }) { Text("Odustani") } }
             )
         }
 
