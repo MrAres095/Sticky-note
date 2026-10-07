@@ -38,70 +38,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.android"
-
           KEYSTORE_B64_CLEAN="$(printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]')"
 
-          # Recover the persistent JKS if the GitHub secret was damaged by one
-          # accidental Base64 character being added or removed.
-          python3 - "$KEYSTORE_B64_CLEAN" "$KEYSTORE_PASSWORD" "$HOME/.android/sticky-notes-release.jks" <<'PY'
-import base64
-import hashlib
-import sys
+          python3 scripts/recover_jks.py             "$KEYSTORE_B64_CLEAN"             "$KEYSTORE_PASSWORD"             "$HOME/.android/sticky-notes-release.jks"
 
-b64, password, out = sys.argv[1:]
-alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-
-def valid_jks(raw):
-    if len(raw) < 28 or raw[:4] != b"\xfe\xed\xfe\xed":
-        return False
-    stored = raw[-20:]
-    material = raw[:-20] + password.encode("utf-16be") + b"Mighty Aphrodite"
-    return hashlib.sha1(material).digest() == stored
-
-def try_candidate(s):
-    try:
-        raw = base64.b64decode(s + "=" * ((4 - len(s) % 4) % 4), validate=True)
-    except Exception:
-        return None
-    return raw if valid_jks(raw) else None
-
-found = try_candidate(b64)
-
-# Try deletion of one Base64 character (the observed secret is misaligned).
-if found is None:
-    for i in range(len(b64)):
-        raw = try_candidate(b64[:i] + b64[i+1:])
-        if raw is not None:
-            found = raw
-            break
-
-# Also handle one omitted Base64 character.
-if found is None and len(b64) % 4 == 3:
-    for i in range(len(b64) + 1):
-        for ch in alphabet:
-            raw = try_candidate(b64[:i] + ch + b64[i:])
-            if raw is not None:
-                found = raw
-                break
-        if found is not None:
-            break
-
-if found is None:
-    print("Unable to recover a valid persistent signing keystore from the stored secret.")
-    sys.exit(1)
-
-with open(out, "wb") as fh:
-    fh.write(found)
-print("Persistent signing keystore recovered and integrity-validated.")
-PY
-
-          test -s "$HOME/.android/sticky-notes-release.jks"
-
-          keytool -list \
-            -keystore "$HOME/.android/sticky-notes-release.jks" \
-            -storepass "$KEYSTORE_PASSWORD" \
-            -alias "$KEY_ALIAS" \
-            >/tmp/sticky-keytool-check.txt 2>&1 || {
+          keytool -list             -keystore "$HOME/.android/sticky-notes-release.jks"             -storepass "$KEYSTORE_PASSWORD"             -alias "$KEY_ALIAS"             >/tmp/sticky-keytool-check.txt 2>&1 || {
               echo "Signing keystore validation failed:"
               cat /tmp/sticky-keytool-check.txt
               exit 1
