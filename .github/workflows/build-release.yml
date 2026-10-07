@@ -42,22 +42,35 @@ jobs:
           export KEYSTORE_B64_CLEAN
 
           python3 - <<'PY'
-          import base64, binascii, os, re, sys
+          import base64, os, re, sys
           s = os.environ["KEYSTORE_B64_CLEAN"]
           print("Signing secret diagnostics (secret value is never printed):")
-          print(f"- Base64 length: {len(s)}")
-          print(f"- Length modulo 4: {len(s) % 4}")
-          print(f"- Valid Base64 character set: {bool(re.fullmatch(r'[A-Za-z0-9+/]*={0,2}', s))}")
+          print(f"- Stored Base64 length: {len(s)}")
+          print(f"- Stored length modulo 4: {len(s) % 4}")
+
+          # Normalize padding. This also repairs the common case where a copied
+          # value contains an extra character after the final '=' padding.
+          core = s.rstrip("=")
+          if not re.fullmatch(r"[A-Za-z0-9+/]*", core):
+              print("- Base64 characters: FAILED")
+              sys.exit(1)
+          normalized = core + ("=" * ((4 - len(core) % 4) % 4))
+          print(f"- Normalized Base64 length: {len(normalized)}")
+          print(f"- Normalized length modulo 4: {len(normalized) % 4}")
+
           try:
-              raw = base64.b64decode(s, validate=True)
+              raw = base64.b64decode(normalized, validate=True)
           except Exception as e:
               print(f"- Base64 decode: FAILED ({type(e).__name__})")
               print(f"- Decode detail: {e}")
               sys.exit(1)
+
           print("- Base64 decode: OK")
           print(f"- Decoded bytes: {len(raw)}")
-          print(f"- JKS magic: {'OK' if raw[:4] == bytes.fromhex('FEEDFEED') else 'FAILED'}")
-          print(f"- Last 4 bytes: {raw[-4:].hex().upper()}")
+          if raw[:4] != bytes.fromhex("FEEDFEED"):
+              print("- JKS magic: FAILED")
+              sys.exit(1)
+          print("- JKS magic: OK")
           open(os.path.expanduser("~/.android/sticky-notes-release.jks"), "wb").write(raw)
           PY
 
