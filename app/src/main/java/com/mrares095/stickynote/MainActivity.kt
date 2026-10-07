@@ -54,7 +54,7 @@ fun StickyNoteApp(context: Context) {
     var showRenameTab by remember { mutableStateOf<String?>(null) }
     var renameText by remember { mutableStateOf("") }
 
-    fun persistNotes(v: List<Note>) { notes=v; saveNotes(context,v) }
+    fun persistNotes(v: List<Note>) { notes=v; saveNotes(context,v); NoteWidgetProvider.updateAll(context) }
     fun persistCategories(v: List<String>) { categories=v; saveCategories(context,v); if (!v.contains(selected)) selected=v.first() }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
