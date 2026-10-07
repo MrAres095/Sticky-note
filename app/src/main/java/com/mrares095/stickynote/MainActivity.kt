@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -402,7 +403,7 @@ fun StickyNoteApp(
                 LazyVerticalGrid(columns = GridCells.Adaptive(160.dp), contentPadding = PaddingValues(12.dp)) {
                     items(filtered, key = { it.id }) { note ->
                         Card(
-                            Modifier.padding(6.dp),
+                            Modifier.padding(6.dp).clickable { editing = note },
                             colors = CardDefaults.cardColors(containerColor = Color(note.color))
                         ) {
                             Column(Modifier.padding(14.dp)) {
