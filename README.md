@@ -25,4 +25,3 @@ GitHub Actions automatically assigns an increasing `versionCode` and `1.0.x` ver
 
 Never commit the JKS, passwords, or `keystore.properties`.
 
-<!-- CI trigger test -->
