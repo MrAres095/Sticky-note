@@ -39,42 +39,26 @@ jobs:
           set -euo pipefail
           mkdir -p "$HOME/.android"
 
-          python3 - <<'PY'
-          import base64, os, re, sys
+          KEYSTORE_B64_CLEAN="$(printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]')"
 
-          raw = os.environ.get("KEYSTORE_B64", "")
-          clean = re.sub(r"[^A-Za-z0-9+/=]", "", raw)
+          # The currently stored value is one character out of alignment.
+          # If that character is an extra trailing padding character, remove it.
+          if [ "$((${#KEYSTORE_B64_CLEAN} % 4))" -eq 1 ] && [[ "$KEYSTORE_B64_CLEAN" == *"=" ]]; then
+            KEYSTORE_B64_CLEAN="${KEYSTORE_B64_CLEAN::-1}"
+          fi
 
-          print(
-              f"Signing key secret received: raw={len(raw)} chars, "
-              f"base64={len(clean)} chars, mod4={len(clean) % 4}"
-          )
+          REMAINDER=$(( ${#KEYSTORE_B64_CLEAN} % 4 ))
+          if [ "$REMAINDER" -eq 2 ]; then
+            KEYSTORE_B64_CLEAN="${KEYSTORE_B64_CLEAN}=="
+          elif [ "$REMAINDER" -eq 3 ]; then
+            KEYSTORE_B64_CLEAN="${KEYSTORE_B64_CLEAN}="
+          elif [ "$REMAINDER" -eq 1 ]; then
+            echo "Signing key Base64 is damaged and cannot be decoded safely."
+            exit 1
+          fi
 
-          if not clean:
-              raise SystemExit("Signing key secret is empty.")
-
-          if len(clean) % 4 == 1:
-              raise SystemExit(
-                  "Signing key secret is incomplete/invalid Base64 "
-                  "(length mod 4 = 1)."
-              )
-
-          clean += "=" * ((4 - len(clean) % 4) % 4)
-
-          try:
-              data = base64.b64decode(clean, validate=True)
-          except Exception as exc:
-              raise SystemExit(f"Signing key secret is not valid Base64: {exc}")
-
-          path = os.path.expanduser("~/.android/sticky-notes-release.jks")
-          with open(path, "wb") as f:
-              f.write(data)
-
-          print(f"Decoded signing keystore: {len(data)} bytes")
-
-          if len(data) < 32:
-              raise SystemExit("Decoded signing keystore is unexpectedly small.")
-          PY
+          printf '%s' "$KEYSTORE_B64_CLEAN" | base64 --decode > "$HOME/.android/sticky-notes-release.jks"
+          test -s "$HOME/.android/sticky-notes-release.jks"
 
           keytool -list             -keystore "$HOME/.android/sticky-notes-release.jks"             -storepass "$KEYSTORE_PASSWORD"             -alias "$KEY_ALIAS"             >/tmp/sticky-keytool-check.txt 2>&1 || {
               echo "Signing keystore validation failed:"
