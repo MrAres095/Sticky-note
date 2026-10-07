@@ -324,6 +324,12 @@ fun StickyNoteApp(
         persistNotes(notes.filterNot { it.trashed })
     }
 
+    fun persistCategories(v: List<String>) {
+        categories = v
+        saveCategories(context, v)
+        if (!v.contains(selected)) selected = v.first()
+    }
+
     fun deleteCategory(category: String) {
         if (category == "Sve") return
         val fallback = categories.firstOrNull { it != "Sve" && it != category } ?: "Osobno"
@@ -338,12 +344,6 @@ fun StickyNoteApp(
         })
         selected = fallback
         trashOnly = false
-    }
-
-    fun persistCategories(v: List<String>) {
-        categories = v
-        saveCategories(context, v)
-        if (!v.contains(selected)) selected = v.first()
     }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
