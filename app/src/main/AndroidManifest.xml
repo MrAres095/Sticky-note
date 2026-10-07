@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application
         android:theme="@style/Theme.StickyNote"
-        android:label="Sticky & Note"
+        android:label="Sticky &amp; Note"
         android:allowBackup="true"
         android:supportsRtl="true">
         <activity android:name=".MainActivity" android:exported="true">
