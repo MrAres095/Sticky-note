@@ -284,6 +284,7 @@ fun StickyNoteApp(
     var favoritesOnly by remember { mutableStateOf(false) }
     var pinnedOnly by remember { mutableStateOf(false) }
     var trashOnly by remember { mutableStateOf(false) }
+    var confirmPermanentDelete by remember { mutableStateOf<Note?>(null) }
 
     LaunchedEffect(openNoteId, notes) {
         if (openNoteId != null && editing == null) {
@@ -424,7 +425,7 @@ fun StickyNoteApp(
                                     }) { Text(if (note.pinned) "📌" else "📍") }
                                     if (trashOnly) {
                                         TextButton(onClick = { restoreNote(note) }) { Text("Vrati") }
-                                        TextButton(onClick = { permanentlyDeleteNote(note) }) { Text("Trajno obriši") }
+                                        TextButton(onClick = { confirmPermanentDelete = note }) { Text("Trajno obriši") }
                                     } else {
                                         TextButton(onClick = { editing = note }) { Text("Uredi") }
                                         TextButton(onClick = { deleteNote(note) }) { Text("Obriši") }
@@ -485,6 +486,21 @@ fun StickyNoteApp(
                     }) { Text("Spremi") }
                 },
                 dismissButton = { TextButton(onClick = { editing = null }) { Text("Odustani") } }
+            )
+        }
+
+        confirmPermanentDelete?.let { note ->
+            AlertDialog(
+                onDismissRequest = { confirmPermanentDelete = null },
+                title = { Text("Trajno brisanje") },
+                text = { Text("Želiš li trajno obrisati ovu bilješku? Ova radnja se ne može poništiti.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        permanentlyDeleteNote(note)
+                        confirmPermanentDelete = null
+                    }) { Text("Trajno obriši") }
+                },
+                dismissButton = { TextButton(onClick = { confirmPermanentDelete = null }) { Text("Odustani") } }
             )
         }
 
