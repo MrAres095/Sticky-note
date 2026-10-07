@@ -94,6 +94,7 @@ private fun saveNotes(context: Context, values: List<Note>) {
 
 class MainActivity : ComponentActivity() {
     private var keepAccessToken: String? = null
+    private var keepStatusMessage by mutableStateOf<String?>(null)
     private var syncAfterAuthorization = false
 
     private val authorizationLauncher =
@@ -117,6 +118,8 @@ class MainActivity : ComponentActivity() {
             StickyNoteApp(
                 context = this,
                 keepConnected = keepAccessToken != null,
+                message = keepStatusMessage,
+                onDismissMessage = { keepStatusMessage = null },
                 onConnectKeep = { authorizeKeep(false) },
                 onSyncKeep = { authorizeKeep(true) }
             )
@@ -232,8 +235,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showKeepMessage(message: String) {
-        KeepUiEvents.message = message
-        runOnUiThread { recreate() }
+        runOnUiThread { keepStatusMessage = message }
     }
 }
 
@@ -246,6 +248,8 @@ private object KeepUiEvents {
 fun StickyNoteApp(
     context: Context,
     keepConnected: Boolean,
+    message: String?,
+    onDismissMessage: () -> Unit,
     onConnectKeep: () -> Unit,
     onSyncKeep: () -> Unit
 ) {
@@ -472,10 +476,10 @@ fun StickyNoteApp(
 
         if (!message.isNullOrBlank()) {
             AlertDialog(
-                onDismissRequest = { message = null },
+                onDismissRequest = onDismissMessage,
                 title = { Text("Google Keep") },
                 text = { Text(message.orEmpty()) },
-                confirmButton = { TextButton(onClick = { message = null }) { Text("OK") } }
+                confirmButton = { TextButton(onClick = onDismissMessage) { Text("OK") } }
             )
         }
     }
