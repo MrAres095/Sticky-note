@@ -15,7 +15,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class Note(val id: Long, val title: String, val text: String, val category: String, val favorite: Boolean = false)
+data class Note(val id: Long, val title: String, val text: String, val category: String, val favorite: Boolean = false, val color: Long = 0xFF252525)
 
 private const val PREFS = "sticky_note_data"
 private const val NOTES = "notes"
@@ -32,11 +32,11 @@ private fun saveCategories(context: Context, values: List<String>) {
 private fun loadNotes(context: Context): List<Note> {
     val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(NOTES, null) ?: return listOf(Note(1L, "Dobrodošli", "Ovo je tvoja nova Sticky & Note bilješka.", "Osobno"))
     val a = JSONArray(raw); return List(a.length()) {
-        val o=a.getJSONObject(it); Note(o.getLong("id"), o.getString("title"), o.getString("text"), o.getString("category"), o.optBoolean("favorite", false))
+        val o=a.getJSONObject(it); Note(o.getLong("id"), o.getString("title"), o.getString("text"), o.getString("category"), o.optBoolean("favorite", false), o.optLong("color", 0xFF252525))
     }
 }
 private fun saveNotes(context: Context, values: List<Note>) {
-    val a=JSONArray(); values.forEach { n -> a.put(JSONObject().apply { put("id",n.id); put("title",n.title); put("text",n.text); put("category",n.category); put("favorite",n.favorite) }) }
+    val a=JSONArray(); values.forEach { n -> a.put(JSONObject().apply { put("id",n.id); put("title",n.title); put("text",n.text); put("category",n.category); put("favorite",n.favorite); put("color",n.color) }) }
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(NOTES,a.toString()).apply()
 }
 
@@ -82,7 +82,7 @@ fun StickyNoteApp(context: Context) {
                 val shown=if(favoritesOnly) searched.filter{it.favorite} else searched
                 LazyVerticalGrid(columns=GridCells.Adaptive(160.dp),contentPadding=PaddingValues(12.dp)) {
                     items(shown,key={it.id}) { note ->
-                        Card(Modifier.padding(6.dp)) {
+                        Card(Modifier.padding(6.dp),colors=CardDefaults.cardColors(containerColor=androidx.compose.ui.graphics.Color(note.color))) {
                             Column(Modifier.padding(14.dp)) {
                                 Text(note.title.ifBlank{"Bez naslova"},style=MaterialTheme.typography.titleMedium)
                                 Spacer(Modifier.height(8.dp)); Text(note.text,maxLines=8)
@@ -102,15 +102,18 @@ fun StickyNoteApp(context: Context) {
             var title by remember(note.id){mutableStateOf(note.title)}
             var body by remember(note.id){mutableStateOf(note.text)}
             var cat by remember(note.id){mutableStateOf(if(note.category=="") "Osobno" else note.category)}
+            var noteColor by remember(note.id){mutableLongStateOf(note.color)}
             AlertDialog(onDismissRequest={editing=null},title={Text(if(note.title.isBlank())"Nova bilješka" else "Uredi bilješku")},text={
                 Column {
                     OutlinedTextField(title,{title=it},label={Text("Naslov")},singleLine=true)
                     Spacer(Modifier.height(8.dp)); OutlinedTextField(body,{body=it},label={Text("Bilješka")},minLines=5)
                     Spacer(Modifier.height(8.dp)); Text("Tab: $cat")
+                    Spacer(Modifier.height(8.dp)); Text("Boja bilješke")
+                    Row { listOf(0xFF252525L,0xFF5A3D31L,0xFF5B4B1FL,0xFF3E5739L,0xFF304B63L,0xFF563E63L,0xFF633C4AL).forEach { color -> TextButton(onClick={noteColor=color}) { Text("●",color=androidx.compose.ui.graphics.Color(color)) } } }
                     Row { categories.filter{it!="Sve"}.forEach { c -> TextButton(onClick={cat=c}){Text(c)} } }
                 }
             },confirmButton={TextButton(onClick={
-                if(title.isNotBlank()||body.isNotBlank()) persistNotes((notes.filterNot{it.id==note.id})+Note(note.id,title,body,cat,note.favorite))
+                if(title.isNotBlank()||body.isNotBlank()) persistNotes((notes.filterNot{it.id==note.id})+Note(note.id,title,body,cat,note.favorite,noteColor))
                 editing=null
             }){Text("Spremi")}},dismissButton={TextButton(onClick={editing=null}){Text("Odustani")}})
         }
