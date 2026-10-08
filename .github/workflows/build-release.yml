@@ -38,7 +38,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.android"
-          printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > "$HOME/.android/sticky-notes-release.jks"
+          python3 - <<'PY'
+          import base64, os
+          s = os.environ["KEYSTORE_B64"]
+          s = "".join(s.split())
+          s += "=" * ((4 - len(s) % 4) % 4)
+          raw = base64.b64decode(s, validate=True)
+          if len(raw) < 100:
+              raise SystemExit("Decoded keystore is unexpectedly small")
+          with open(os.path.expanduser("~/.android/sticky-notes-release.jks"), "wb") as f:
+              f.write(raw)
+          print("Existing keystore decoded successfully:", len(raw), "bytes")
+          PY
 
           echo "Checking existing release keystore..."
           STORE_PASSWORD="$KEYSTORE_PASSWORD"
