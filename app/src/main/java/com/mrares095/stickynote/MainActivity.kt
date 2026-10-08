@@ -41,7 +41,7 @@ data class Note(
 const val PREFS = "sticky_note_data"
 const val NOTES = "notes"
 const val CATEGORIES = "categories"
-private const val KEEP_SCOPE = "https://www.googleapis.com/auth/keep"
+private const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata"
 
 private fun loadCategories(context: Context): List<String> {
     val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(CATEGORIES, null)
@@ -97,8 +97,8 @@ private fun saveNotes(context: Context, values: List<Note>) {
 }
 
 class MainActivity : ComponentActivity() {
-    private var keepAccessToken: String? = null
-    private var keepStatusMessage by mutableStateOf<String?>(null)
+    private var driveAccessToken: String? = null
+    private var driveStatusMessage by mutableStateOf<String?>(null)
     private var syncAfterAuthorization = false
 
     private val authorizationLauncher =
@@ -109,10 +109,10 @@ class MainActivity : ComponentActivity() {
                         .getAuthorizationResultFromIntent(result.data!!)
                     handleAuthorizationResult(authorizationResult)
                 } catch (e: Exception) {
-                    showKeepMessage("Google autorizacija nije uspjela.")
+                    showDriveMessage("Google autorizacija nije uspjela.")
                 }
             } else {
-                showKeepMessage("Google autorizacija je otkazana.")
+                showDriveMessage("Google autorizacija je otkazana.")
             }
         }
 
@@ -121,156 +121,131 @@ class MainActivity : ComponentActivity() {
         setContent {
             StickyNoteApp(
                 context = this,
-                keepConnected = keepAccessToken != null,
-                message = keepStatusMessage,
-                onDismissMessage = { keepStatusMessage = null },
-                onConnectKeep = { authorizeKeep(false) },
-                onSyncKeep = { authorizeKeep(true) },
+                driveConnected = driveAccessToken != null,
+                message = driveStatusMessage,
+                onDismissMessage = { driveStatusMessage = null },
+                onConnectDrive = { authorizeDrive(false) },
+                onSyncDrive = { authorizeDrive(true) },
                 onCheckUpdate = { checkForUpdate() },
                 openNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
             )
         }
     }
 
-    private fun authorizeKeep(syncAfter: Boolean) {
+    private fun authorizeDrive(syncAfter: Boolean) {
         syncAfterAuthorization = syncAfter
         val request = AuthorizationRequest.builder()
-            .setRequestedScopes(listOf(Scope(KEEP_SCOPE)))
+            .setRequestedScopes(listOf(Scope(DRIVE_SCOPE)))
             .build()
 
         Identity.getAuthorizationClient(this)
             .authorize(request)
             .addOnSuccessListener { handleAuthorizationResult(it) }
-            .addOnFailureListener { showKeepMessage("Google autorizacija nije dostupna: ${it.message}") }
+            .addOnFailureListener { showDriveMessage("Google autorizacija nije dostupna: ${it.message}") }
     }
 
     private fun handleAuthorizationResult(result: AuthorizationResult) {
         if (result.hasResolution()) {
             val pendingIntent: PendingIntent? = result.pendingIntent
             if (pendingIntent == null) {
-                showKeepMessage("Google nije ponudio autorizaciju.")
+                showDriveMessage("Google nije ponudio autorizaciju.")
                 return
             }
             authorizationLauncher.launch(
                 androidx.activity.result.IntentSenderRequest.Builder(pendingIntent.intentSender).build()
             )
         } else {
-            keepAccessToken = result.accessToken
-            showKeepMessage("Google Keep je povezan.")
+            driveAccessToken = result.accessToken
+            showDriveMessage("Google Drive je povezan.")
             if (syncAfterAuthorization) {
                 syncAfterAuthorization = false
-                syncKeep()
+                syncDrive()
             }
         }
     }
 
-    private fun syncKeep() {
-        val token = keepAccessToken ?: run {
-            showKeepMessage("Prvo poveži Google Keep.")
+    private fun syncDrive() {
+        val token = driveAccessToken ?: run {
+            showDriveMessage("Prvo poveži Google Drive.")
             return
         }
-        showKeepMessage("Sinkronizacija s Google Keepom...")
+        showDriveMessage("Sinkronizacija s Google Driveom...")
         val current = loadNotes(this)
+        val currentCategories = loadCategories(this)
 
         thread {
             try {
-                val remote = GoogleKeepSync.listNotes(token)
-                val remoteByName = remote.associateBy { it.name }
-                val usedRemote = mutableSetOf<String>()
-                val updated = mutableListOf<Note>()
+                val remote = GoogleDriveSync.downloadState(token)
+                val merged: Pair<List<Note>, List<String>> = if (remote == null) {
+                    GoogleDriveSync.uploadState(token, current, currentCategories)
+                    current to currentCategories
+                } else {
+                    val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    val firstSync = !prefs.getBoolean("drive_sync_initialized", false)
 
-                var nextImportedId = (current.maxOfOrNull { it.id } ?: 0L) + 1L
+                    val localIsFreshInstall = current.size == 1 &&
+                        current.first().id == 1L &&
+                        current.first().title == "Dobrodošli" &&
+                        current.first().text.contains("Sticky & Note")
 
-                for (note in current) {
-                    if (note.keepId != null) {
-                        val remoteNote = remoteByName[note.keepId]
-                        if (remoteNote == null) {
-                            // Keep the local copy if the remote note was deleted/trashed.
-                            // Clear the stale link so it can be treated as a local note
-                            // instead of silently disappearing.
-                            updated += note.copy(keepId = null)
-                            continue
-                        }
-
-                        usedRemote += remoteNote.name
-                        when {
-                            note.trashed -> {
-                                // Local trash is authoritative: do not recreate the note remotely.
-                                GoogleKeepSync.deleteNote(token, remoteNote.name)
-                                updated += note
-                            }
-                            remoteNote.updateTimeMillis > note.updatedAt + 1000L -> {
-                                updated += note.copy(
-                                    title = remoteNote.title,
-                                    text = remoteNote.text,
-                                    updatedAt = remoteNote.updateTimeMillis
-                                )
-                            }
-                            note.updatedAt > remoteNote.updateTimeMillis + 1000L -> {
-                                GoogleKeepSync.deleteNote(token, remoteNote.name)
-                                val created = GoogleKeepSync.createNote(token, note.title, note.text)
-                                updated += note.copy(keepId = created.name, updatedAt = created.updateTimeMillis)
-                            }
-                            else -> updated += note
-                        }
-                    } else if (note.trashed) {
-                        // Never upload a locally trashed note that has no remote link.
-                        updated += note
+                    val notes = if (firstSync && localIsFreshInstall && remote.notes.isNotEmpty()) {
+                        remote.notes
                     } else {
-                        val existing = remote.firstOrNull {
-                            it.name !in usedRemote && it.title == note.title && it.text == note.text
+                        val byId = LinkedHashMap<Long, Note>()
+                        remote.notes.forEach { byId[it.id] = it }
+                        current.forEach { local ->
+                            val cloud = byId[local.id]
+                            when {
+                                cloud == null -> byId[local.id] = local
+                                local.updatedAt > cloud.updatedAt + 1000L -> byId[local.id] = local
+                                else -> byId[local.id] = cloud
+                            }
                         }
-                        if (existing != null) {
-                            usedRemote += existing.name
-                            updated += note.copy(keepId = existing.name, updatedAt = existing.updateTimeMillis)
-                        } else {
-                            val created = GoogleKeepSync.createNote(token, note.title, note.text)
-                            usedRemote += created.name
-                            updated += note.copy(keepId = created.name, updatedAt = created.updateTimeMillis)
-                        }
+                        byId.values.toList()
                     }
-                }
 
-                remote.filter { it.name !in usedRemote }.forEach { remoteNote ->
-                    updated += Note(
-                        id = nextImportedId++,
-                        title = remoteNote.title,
-                        text = remoteNote.text,
-                        category = "Osobno",
-                        keepId = remoteNote.name,
-                        updatedAt = remoteNote.updateTimeMillis
-                    )
+                    val categories = (currentCategories + remote.categories)
+                        .distinct()
+                        .ifEmpty { listOf("Sve", "Osobno", "Recepti") }
+
+                    GoogleDriveSync.uploadState(token, notes, categories)
+                    notes to categories
                 }
 
                 runOnUiThread {
-                    saveNotes(this, updated)
+                    saveNotes(this, merged.first)
+                    saveCategories(this, merged.second)
+                    getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean("drive_sync_initialized", true)
+                        .apply()
                     NoteWidgetProvider.updateAll(this)
-                    showKeepMessage("Google Keep sinkronizacija završena. ${updated.size} bilješki.")
+                    showDriveMessage("Google Drive sinkronizacija završena. " + merged.first.size + " bilješki.")
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    showKeepMessage("Google Keep greška: ${e.message ?: "nepoznata greška"}")
+                    showDriveMessage("Google Drive greška: " + (e.message ?: "nepoznata greška"))
                 }
             }
         }
     }
 
     private fun checkForUpdate() {
-        showKeepMessage("Provjeravam ažuriranje…")
+        showDriveMessage("Provjeravam ažuriranje…")
         UpdateManager.check(this) { message, apkUrl ->
             runOnUiThread {
                 if (apkUrl != null) {
-                    keepStatusMessage = message + " Preuzimam…"
-                    UpdateManager.downloadAndInstall(this, apkUrl) { status -> showKeepMessage(status) }
+                    driveStatusMessage = message + " Preuzimam…"
+                    UpdateManager.downloadAndInstall(this, apkUrl) { status -> showDriveMessage(status) }
                 } else {
-                    keepStatusMessage = message
+                    driveStatusMessage = message
                 }
             }
         }
     }
 
-    private fun showKeepMessage(message: String) {
-        runOnUiThread { keepStatusMessage = message }
+    private fun showDriveMessage(message: String) {
+        runOnUiThread { driveStatusMessage = message }
     }
 }
 
@@ -279,11 +254,11 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun StickyNoteApp(
     context: Context,
-    keepConnected: Boolean,
+    driveConnected: Boolean,
     message: String?,
     onDismissMessage: () -> Unit,
-    onConnectKeep: () -> Unit,
-    onSyncKeep: () -> Unit,
+    onConnectDrive: () -> Unit,
+    onSyncDrive: () -> Unit,
     onCheckUpdate: () -> Unit,
     openNoteId: Long? = null
 ) {
@@ -367,8 +342,8 @@ fun StickyNoteApp(
                 TopAppBar(
                     title = { Text("Sticky & Note") },
                     actions = {
-                        TextButton(onClick = onConnectKeep) { Text(if (keepConnected) "Keep ✓" else "Google Keep") }
-                        TextButton(onClick = onSyncKeep) { Text("Sync") }
+                        TextButton(onClick = onConnectDrive) { Text(if (driveConnected) "Keep ✓" else "Google Drive") }
+                        TextButton(onClick = onSyncDrive) { Text("Sync") }
                         TextButton(onClick = onCheckUpdate) { Text("Ažuriraj") }
                     }
                 )
@@ -618,7 +593,7 @@ fun StickyNoteApp(
         if (!message.isNullOrBlank()) {
             AlertDialog(
                 onDismissRequest = onDismissMessage,
-                title = { Text("Google Keep") },
+                title = { Text("Google Drive") },
                 text = { Text(message.orEmpty()) },
                 confirmButton = { TextButton(onClick = onDismissMessage) { Text("OK") } }
             )
