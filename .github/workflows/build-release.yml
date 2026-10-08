@@ -61,17 +61,6 @@ jobs:
 
           echo "### Signing: PERSISTENT RELEASE KEY" >> "$GITHUB_STEP_SUMMARY"
           echo "The existing Sticky & Note release keystore was accepted." >> "$GITHUB_STEP_SUMMARY"
-      - name: Report signing mode
-        shell: bash
-        run: |
-          if [ "${{ steps.signing.outputs.signing_mode }}" = "persistent-release-key" ]; then
-            echo "### Signing: PERSISTENT RELEASE KEY" >> "$GITHUB_STEP_SUMMARY"
-            echo "The configured Sticky & Note release keystore and alias were accepted." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### Signing: DEBUG FALLBACK" >> "$GITHUB_STEP_SUMMARY"
-            echo "The configured release keystore could not be used; this APK is not suitable for update-over-install compatibility." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
       - name: Set automatic app version
         id: version
         shell: bash
