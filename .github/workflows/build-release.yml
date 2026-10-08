@@ -29,7 +29,6 @@ jobs:
           gradle-version: "8.10.2"
 
       - name: Prepare signing
-        id: signing
         shell: bash
         env:
           KEYSTORE_B64: ${{ secrets.STICKY_KEYSTORE_BASE64 }}
@@ -39,60 +38,29 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.android"
-          printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' > /tmp/sticky.b64
-          B64_LEN=$(wc -c < /tmp/sticky.b64 | tr -d ' ')
-          echo "Keystore Base64 length: $B64_LEN"
+          printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > "$HOME/.android/sticky-notes-release.jks"
 
-          SIGNING_MODE="debug-fallback"
-
-          if python3 - <<'PY'
-          import base64, os
-          s = open("/tmp/sticky.b64").read()
-          if not s:
-              raise ValueError("empty keystore secret")
-          s += "=" * ((4 - len(s) % 4) % 4)
-          raw = base64.b64decode(s)
-          if len(raw) < 100:
-              raise ValueError("decoded keystore is unexpectedly small")
-          print("Decoded keystore bytes:", len(raw))
-          with open(os.path.expanduser("~/.android/sticky-notes-release.jks"), "wb") as f:
-              f.write(raw)
-          PY
-          then
-            echo "Keystore Base64 decode: OK"
-          else
-            echo "Keystore Base64 decode: FAILED; using debug signing fallback."
-            echo "DEBUG_SIGNING=true" >> "$GITHUB_ENV"
+          echo "Checking existing release keystore..."
+          STORE_PASSWORD="$KEYSTORE_PASSWORD"
+          if ! keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" >/dev/null 2>&1; then
+            echo "Keystore password secret did not open the existing keystore; trying the configured key password as the keystore password."
+            STORE_PASSWORD="$KEY_PASSWORD"
+            keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" >/dev/null
           fi
 
-          if [ "${DEBUG_SIGNING:-false}" != "true" ]; then
-            echo "Checking keystore password and structure..."
-            if keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$KEYSTORE_PASSWORD" >/tmp/keytool.out 2>/tmp/keytool.err; then
-              echo "Keystore password: OK"
-              sed -n '1,12p' /tmp/keytool.out
-              if keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
-                echo "Signing alias: OK"
-                SIGNING_MODE="persistent-release-key"
-                cat > keystore.properties <<EOF
+          keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+          echo "Existing keystore: OK"
+          echo "Alias: OK"
+
+          cat > keystore.properties <<EOF
           storeFile=$HOME/.android/sticky-notes-release.jks
-          storePassword=$KEYSTORE_PASSWORD
+          storePassword=$STORE_PASSWORD
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
           EOF
-              else
-                echo "Signing alias: NOT FOUND; using debug signing fallback."
-                echo "DEBUG_SIGNING=true" >> "$GITHUB_ENV"
-              fi
-            else
-              echo "Keystore password/open: FAILED; using debug signing fallback."
-              sed -n '1,4p' /tmp/keytool.err
-              echo "DEBUG_SIGNING=true" >> "$GITHUB_ENV"
-            fi
-          fi
 
-          echo "signing_mode=$SIGNING_MODE" >> "$GITHUB_OUTPUT"
-          echo "SIGNING_MODE=$SIGNING_MODE" >> "$GITHUB_ENV"
-
+          echo "### Signing: PERSISTENT RELEASE KEY" >> "$GITHUB_STEP_SUMMARY"
+          echo "The existing Sticky & Note release keystore was accepted." >> "$GITHUB_STEP_SUMMARY"
       - name: Report signing mode
         shell: bash
         run: |
