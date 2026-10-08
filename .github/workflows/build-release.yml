@@ -61,6 +61,10 @@ jobs:
             keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" >/dev/null
           fi
 
+          if [ "$KEY_ALIAS" != "sticky-notes-release" ]; then
+            echo "ERROR: STICKY_KEY_ALIAS must be exactly sticky-notes-release"
+            exit 1
+          fi
           keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
           echo "Existing keystore: OK"
           echo "Alias: OK"
