@@ -54,10 +54,13 @@ jobs:
           PY
 
           echo "Checking existing release keystore..."
-          STORE_PASSWORD="$KEYSTORE_PASSWORD"
+          STORE_PASSWORD="$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '\r\n')"
+          KEY_PASSWORD_CLEAN="$(printf '%s' "$KEY_PASSWORD" | tr -d '\r\n')"
+          echo "Keystore password length: ${#STORE_PASSWORD}"
+          echo "Key password length: ${#KEY_PASSWORD_CLEAN}"
           if ! keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" >/dev/null 2>&1; then
             echo "Keystore password secret did not open the existing keystore; trying the configured key password as the keystore password."
-            STORE_PASSWORD="$KEY_PASSWORD"
+            STORE_PASSWORD="$KEY_PASSWORD_CLEAN"
             keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" >/dev/null
           fi
 
@@ -73,7 +76,7 @@ jobs:
           storeFile=$HOME/.android/sticky-notes-release.jks
           storePassword=$STORE_PASSWORD
           keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD
+          keyPassword=$KEY_PASSWORD_CLEAN
           EOF
 
           echo "### Signing: PERSISTENT RELEASE KEY" >> "$GITHUB_STEP_SUMMARY"
