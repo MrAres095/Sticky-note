@@ -41,7 +41,7 @@ data class Note(
 const val PREFS = "sticky_note_data"
 const val NOTES = "notes"
 const val CATEGORIES = "categories"
-private const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata"
+private const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
 private fun loadCategories(context: Context): List<String> {
     val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(CATEGORIES, null)
@@ -342,7 +342,7 @@ fun StickyNoteApp(
                 TopAppBar(
                     title = { Text("Sticky & Note") },
                     actions = {
-                        TextButton(onClick = onConnectDrive) { Text(if (driveConnected) "Keep ✓" else "Google Drive") }
+                        TextButton(onClick = onConnectDrive) { Text(if (driveConnected) "Google Drive ✓" else "Google Drive") }
                         TextButton(onClick = onSyncDrive) { Text("Sync") }
                         TextButton(onClick = onCheckUpdate) { Text("Ažuriraj") }
                     }
