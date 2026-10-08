@@ -179,14 +179,26 @@ class MainActivity : ComponentActivity() {
                 val usedRemote = mutableSetOf<String>()
                 val updated = mutableListOf<Note>()
 
+                var nextImportedId = (current.maxOfOrNull { it.id } ?: 0L) + 1L
+
                 for (note in current) {
                     if (note.keepId != null) {
                         val remoteNote = remoteByName[note.keepId]
                         if (remoteNote == null) {
+                            // Keep the local copy if the remote note was deleted/trashed.
+                            // Clear the stale link so it can be treated as a local note
+                            // instead of silently disappearing.
+                            updated += note.copy(keepId = null)
                             continue
                         }
+
                         usedRemote += remoteNote.name
                         when {
+                            note.trashed -> {
+                                // Local trash is authoritative: do not recreate the note remotely.
+                                GoogleKeepSync.deleteNote(token, remoteNote.name)
+                                updated += note
+                            }
                             remoteNote.updateTimeMillis > note.updatedAt + 1000L -> {
                                 updated += note.copy(
                                     title = remoteNote.title,
@@ -201,6 +213,9 @@ class MainActivity : ComponentActivity() {
                             }
                             else -> updated += note
                         }
+                    } else if (note.trashed) {
+                        // Never upload a locally trashed note that has no remote link.
+                        updated += note
                     } else {
                         val existing = remote.firstOrNull {
                             it.name !in usedRemote && it.title == note.title && it.text == note.text
@@ -216,9 +231,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                remote.filter { it.name !in usedRemote }.forEachIndexed { index, remoteNote ->
+                remote.filter { it.name !in usedRemote }.forEach { remoteNote ->
                     updated += Note(
-                        id = System.currentTimeMillis() + index,
+                        id = nextImportedId++,
                         title = remoteNote.title,
                         text = remoteNote.text,
                         category = "Osobno",
