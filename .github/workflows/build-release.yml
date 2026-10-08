@@ -44,7 +44,7 @@ jobs:
           python3 - <<'PY'
           import base64, os
           s=open("/tmp/sticky.b64").read()
-          raw=base64.b64decode(s, validate=True)
+          raw=base64.b64decode(s)
           print("Decoded keystore bytes:", len(raw))
           open(os.path.expanduser("~/.android/sticky-notes-release.jks"),"wb").write(raw)
           PY
