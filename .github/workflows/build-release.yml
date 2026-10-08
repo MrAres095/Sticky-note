@@ -42,6 +42,8 @@ jobs:
           import base64, os
           s = os.environ["KEYSTORE_B64"]
           s = "".join(s.split())
+          # Normalize any existing padding before adding the exact required padding.
+          s = s.rstrip("=")
           s += "=" * ((4 - len(s) % 4) % 4)
           raw = base64.b64decode(s, validate=True)
           if len(raw) < 100:
@@ -72,6 +74,7 @@ jobs:
 
           echo "### Signing: PERSISTENT RELEASE KEY" >> "$GITHUB_STEP_SUMMARY"
           echo "The existing Sticky & Note release keystore was accepted." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Set automatic app version
         id: version
         shell: bash
