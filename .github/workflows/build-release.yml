@@ -58,10 +58,24 @@ jobs:
           KEY_PASSWORD_CLEAN="$(printf '%s' "$KEY_PASSWORD" | tr -d '\r\n')"
           echo "Keystore password length: ${#STORE_PASSWORD}"
           echo "Key password length: ${#KEY_PASSWORD_CLEAN}"
-          if ! keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" >/dev/null 2>&1; then
-            echo "Keystore password secret did not open the existing keystore; trying the configured key password as the keystore password."
+          if [ "$STORE_PASSWORD" = "$KEY_PASSWORD_CLEAN" ]; then
+            echo "Password secrets: identical"
+          else
+            echo "Password secrets: different"
+          fi
+          STORE_FP="$(printf "%s" "$STORE_PASSWORD" | sha256sum | cut -d" " -f1)"
+          KEY_FP="$(printf "%s" "$KEY_PASSWORD_CLEAN" | sha256sum | cut -d" " -f1)"
+          echo "Keystore secret fingerprint: ${STORE_FP:0:12}"
+          echo "Key secret fingerprint: ${KEY_FP:0:12}"
+          if keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" >/dev/null 2>&1; then
+            echo "Keystore password: MATCH"
+          elif keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$KEY_PASSWORD_CLEAN" >/dev/null 2>&1; then
+            echo "Keystore password: MATCHES KEY_PASSWORD secret"
             STORE_PASSWORD="$KEY_PASSWORD_CLEAN"
-            keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" >/dev/null
+          else
+            echo "ERROR: Neither password secret matches the supplied release keystore."
+            echo "The keystore bytes are valid; the failure is specifically the password value."
+            exit 1
           fi
 
           if [ "$KEY_ALIAS" != "sticky-notes-release" ]; then
