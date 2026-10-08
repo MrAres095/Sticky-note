@@ -21,7 +21,20 @@ class NoteWidgetConfigActivity : Activity() {
                 val a = JSONArray(raw)
                 for (i in 0 until a.length()) {
                     val o = a.getJSONObject(i)
-                    notes += Note(o.getLong("id"), o.getString("title"), o.getString("text"), o.getString("category"))
+                    if (!o.optBoolean("trashed", o.optString("category") == "🗑 Otpad")) {
+                        notes += Note(
+                            o.getLong("id"),
+                            o.getString("title"),
+                            o.getString("text"),
+                            o.getString("category"),
+                            o.optBoolean("favorite", false),
+                            o.optLong("color", 0xFF252525),
+                            o.optBoolean("pinned", false),
+                            o.optString("keepId").takeIf { it.isNotBlank() },
+                            o.optLong("updatedAt", System.currentTimeMillis()),
+                            false
+                        )
+                    }
                 }
             }
         } catch (_: Exception) {}
