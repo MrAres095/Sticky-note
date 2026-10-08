@@ -18,12 +18,12 @@ object GoogleDriveSync {
 
     fun downloadState(accessToken: String): DriveSyncState? {
         val query = URLEncoder.encode(
-            "name = '$FILE_NAME' and 'appDataFolder' in parents and trashed = false",
+            "name = '$FILE_NAME' and trashed = false",
             "UTF-8"
         )
         val listing = request(
             "GET",
-            "$BASE_URL/files?q=$query&spaces=appDataFolder&fields=files(id,name)",
+            "$BASE_URL/files?q=$query&fields=files(id,name)",
             accessToken,
             null
         )
@@ -98,7 +98,7 @@ object GoogleDriveSync {
         )
         val listing = request(
             "GET",
-            "$BASE_URL/files?q=$query&spaces=appDataFolder&fields=files(id)",
+            "$BASE_URL/files?q=$query&fields=files(id)",
             accessToken,
             null
         )
@@ -113,7 +113,6 @@ object GoogleDriveSync {
             val metadata = JSONObject()
                 .put("name", FILE_NAME)
                 .put("mimeType", "application/json")
-                .put("parents", JSONArray().put("appDataFolder"))
             val created = request(
                 "POST",
                 "$BASE_URL/files?fields=id",
