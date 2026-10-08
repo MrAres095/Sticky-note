@@ -41,43 +41,49 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' > /tmp/sticky.b64
           B64_LEN=$(wc -c < /tmp/sticky.b64 | tr -d ' ')
           echo "Keystore Base64 length: $B64_LEN"
-          python3 - <<'PY'
+
+          if python3 - <<'PY'
           import base64, os
-          s=open("/tmp/sticky.b64").read()
-          raw=base64.b64decode(s)
+          s = open("/tmp/sticky.b64").read()
+          if not s:
+              raise ValueError("empty keystore secret")
+          s += "=" * ((4 - len(s) % 4) % 4)
+          raw = base64.b64decode(s)
+          if len(raw) < 100:
+              raise ValueError("decoded keystore is unexpectedly small")
           print("Decoded keystore bytes:", len(raw))
-          open(os.path.expanduser("~/.android/sticky-notes-release.jks"),"wb").write(raw)
+          with open(os.path.expanduser("~/.android/sticky-notes-release.jks"), "wb") as f:
+              f.write(raw)
           PY
-          echo "Checking keystore..."
-          if keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$KEYSTORE_PASSWORD" >/tmp/keytool.out 2>/tmp/keytool.err; then
-            echo "Keystore password: OK"
-            sed -n '1,12p' /tmp/keytool.out
-            if keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
-            echo "Persistent signing key: OK"
-            cat > keystore.properties <<EOF
-          storeFile=$HOME/.android/sticky-notes-release.jks
-          storePassword=$KEYSTORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD
-          EOF
+          then
+            echo "Keystore Base64 decode: OK"
           else
-              echo "Signing alias: OK"
-              cat > keystore.properties <<EOF
+            echo "Keystore Base64 decode: FAILED; using debug signing fallback."
+            echo "DEBUG_SIGNING=true" >> "$GITHUB_ENV"
+          fi
+
+          if [ "${DEBUG_SIGNING:-false}" != "true" ]; then
+            echo "Checking keystore password and structure..."
+            if keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$KEYSTORE_PASSWORD" >/tmp/keytool.out 2>/tmp/keytool.err; then
+              echo "Keystore password: OK"
+              sed -n '1,12p' /tmp/keytool.out
+              if keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+                echo "Signing alias: OK"
+                cat > keystore.properties <<EOF
           storeFile=$HOME/.android/sticky-notes-release.jks
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
           EOF
+              else
+                echo "Signing alias: NOT FOUND; using debug signing fallback."
+                echo "DEBUG_SIGNING=true" >> "$GITHUB_ENV"
+              fi
             else
-              echo "Signing alias: NOT FOUND"
-              echo "Available aliases:"
-              keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$KEYSTORE_PASSWORD" | grep -E '^[[:space:]]*[A-Za-z0-9_.-]+,' || true
+              echo "Keystore password/open: FAILED; using debug signing fallback."
+              sed -n '1,4p' /tmp/keytool.err
               echo "DEBUG_SIGNING=true" >> "$GITHUB_ENV"
             fi
-          else
-            echo "Keystore password/open: FAILED"
-            sed -n '1,4p' /tmp/keytool.err
-            echo "DEBUG_SIGNING=true" >> "$GITHUB_ENV"
           fi
 
       - name: Set automatic app version
@@ -91,7 +97,7 @@ jobs:
 
       - name: Build signed release APK
         run: |
-          gradle --no-daemon :app:assembleRelease             -PversionCode=${{ steps.version.outputs.version_code }}             -PversionName=${{ steps.version.outputs.version_name }}
+          gradle --no-daemon :app:assembleRelease -PversionCode=${{ steps.version.outputs.version_code }} -PversionName=${{ steps.version.outputs.version_name }}
 
       - name: Publish APK artifact
         uses: actions/upload-artifact@v4
@@ -109,7 +115,5 @@ jobs:
           name: Sticky & Note v${{ steps.version.outputs.version_name }}
           body: |
             Automatski build za commit ${{ github.sha }}.
-            
-            APK se potpisuje trajnim signing ključem kada je ključ dostupan; u suprotnom se koristi Android debug potpis samo kao build fallback.
           files: app/build/outputs/apk/release/*.apk
           generate_release_notes: true
