@@ -97,6 +97,21 @@ private fun cancelReminder(context: Context, taskId: Long) {
     if (pending != null) (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(pending)
 }
 
+private fun scheduleNoteReminder(context: Context, note: Note) {
+    val at = note.reminderAt ?: return
+    if (at <= System.currentTimeMillis()) return
+    val intent = Intent(context, ReminderReceiver::class.java)
+        .putExtra("note_id", note.id)
+        .putExtra("note_title", note.title.ifBlank { "Bez naslova" })
+    val pending = PendingIntent.getBroadcast(
+        context, note.id.hashCode(), intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+    val alarms = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
+}
+
+
 data class Note(
     val id: Long,
     val title: String,
@@ -107,7 +122,8 @@ data class Note(
     val pinned: Boolean = false,
     val keepId: String? = null,
     val updatedAt: Long = System.currentTimeMillis(),
-    val trashed: Boolean = false
+    val trashed: Boolean = false,
+    val reminderAt: Long? = null
 )
 
 const val PREFS = "sticky_note_data"
@@ -144,7 +160,8 @@ private fun loadNotes(context: Context): List<Note> {
             o.optBoolean("pinned", false),
             o.optString("keepId").takeIf { value -> value.isNotBlank() },
             o.optLong("updatedAt", System.currentTimeMillis()),
-            o.optBoolean("trashed", o.optString("category") == "🗑 Otpad")
+            o.optBoolean("trashed", o.optString("category") == "🗑 Otpad"),
+            o.optLong("reminderAt").takeIf { it > 0L }
         )
     }
 }
@@ -163,6 +180,7 @@ private fun saveNotes(context: Context, values: List<Note>) {
             put("keepId", n.keepId ?: "")
             put("updatedAt", n.updatedAt)
             put("trashed", n.trashed)
+            put("reminderAt", n.reminderAt ?: 0L)
         })
     }
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(NOTES, a.toString()).apply()
@@ -637,6 +655,7 @@ fun StickyNoteApp(
             var body by remember(note.id) { mutableStateOf(note.text) }
             var cat by remember(note.id) { mutableStateOf(if (note.category == "") "Osobno" else note.category) }
             var noteColor by remember(note.id) { mutableLongStateOf(note.color) }
+            var noteReminderAt by remember(note.id) { mutableStateOf(note.reminderAt) }
 
             AlertDialog(
                 onDismissRequest = { editing = null },
@@ -647,7 +666,26 @@ fun StickyNoteApp(
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(body, { body = it }, label = { Text("Bilješka") }, minLines = 5)
                         Spacer(Modifier.height(8.dp))
-                        Text("Tab: $cat")
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            TextButton(onClick = {
+                                val now = java.util.Calendar.getInstance()
+                                DatePickerDialog(context, { _, year, month, day ->
+                                    val chosen = java.util.Calendar.getInstance().apply { set(year, month, day) }
+                                    TimePickerDialog(context, { _, hour, minute ->
+                                        chosen.set(java.util.Calendar.HOUR_OF_DAY, hour)
+                                        chosen.set(java.util.Calendar.MINUTE, minute)
+                                        chosen.set(java.util.Calendar.SECOND, 0)
+                                        chosen.set(java.util.Calendar.MILLISECOND, 0)
+                                        noteReminderAt = chosen.timeInMillis
+                                    }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
+                                }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                            }) { Text(if (noteReminderAt == null) "Dodaj podsjetnik" else "Promijeni podsjetnik") }
+                            TextButton(onClick = { noteReminderAt = null }) { Text("Ukloni") }
+                        }
+                        noteReminderAt?.let { at ->
+                            Text("Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)))
+                        }
+                        Text("Kategorija: $cat")
                         Spacer(Modifier.height(8.dp))
                         Text("Boja bilješke")
                         Row {
@@ -672,9 +710,19 @@ fun StickyNoteApp(
                                     category = if (cat == "🗑 Otpad") "Osobno" else cat,
                                     color = noteColor,
                                     trashed = false,
+                                    reminderAt = noteReminderAt,
                                     updatedAt = System.currentTimeMillis()
                                 )
                             )
+                            val saved = notes.firstOrNull { it.id == note.id }?.copy(
+                                title = title,
+                                reminderAt = noteReminderAt
+                            ) ?: note.copy(title = title, reminderAt = noteReminderAt)
+                            if (noteReminderAt != null && noteReminderAt!! > System.currentTimeMillis()) {
+                                scheduleNoteReminder(context, saved)
+                            } else {
+                                cancelReminder(context, note.id)
+                            }
                         }
                         editing = null
                     }) { Text("Spremi") }
