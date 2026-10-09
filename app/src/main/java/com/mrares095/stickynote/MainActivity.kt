@@ -197,6 +197,7 @@ private fun saveNotes(context: Context, values: List<Note>) {
 }
 
 class MainActivity : ComponentActivity() {
+    private var pendingOpenNoteId: Long? by mutableStateOf(null)
     private var driveAccessToken: String? by mutableStateOf(null)
     private var driveStatusMessage by mutableStateOf<String?>(null)
     private var syncAfterAuthorization = false
@@ -218,6 +219,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingOpenNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
         setContent {
             StickyNoteApp(
                 context = this,
@@ -227,9 +229,15 @@ class MainActivity : ComponentActivity() {
                 onConnectDrive = { authorizeDrive(false) },
                 onSyncDrive = { authorizeDrive(true) },
                 onCheckUpdate = { checkForUpdate() },
-                openNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
+                openNoteId = pendingOpenNoteId
             )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingOpenNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
     }
 
     private fun authorizeDrive(syncAfter: Boolean) {
