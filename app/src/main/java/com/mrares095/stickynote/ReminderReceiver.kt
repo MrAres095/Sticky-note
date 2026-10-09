@@ -24,9 +24,13 @@ class ReminderReceiver : BroadcastReceiver() {
         }
         val openApp = PendingIntent.getActivity(
             context, taskId.hashCode(),
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                if (isNoteReminder) putExtra("open_note_id", taskId)
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val notificationId = if (isNoteReminder) taskId.hashCode() xor 0x4E4F5445 else taskId.hashCode()
         val notification = NotificationCompat.Builder(context, "todo_reminders")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(if (isNoteReminder) "Podsjetnik za bilješku" else "Podsjetnik za zadatak")
@@ -36,6 +40,6 @@ class ReminderReceiver : BroadcastReceiver() {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
-        manager.notify(taskId.hashCode(), notification)
+        manager.notify(notificationId, notification)
     }
 }
