@@ -337,6 +337,12 @@ fun StickyNoteApp(
     var taskTitle by remember { mutableStateOf("") }
     var taskReminderAt by remember { mutableStateOf<Long?>(null) }
 
+    LaunchedEffect(showTasks) {
+        if (showTasks && Build.VERSION.SDK_INT >= 33 && context is ComponentActivity && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            context.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+        }
+    }
+
     LaunchedEffect(openNoteId, notes) {
         if (openNoteId != null && editing == null) {
             notes.firstOrNull { it.id == openNoteId }?.let { editing = it }
