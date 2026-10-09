@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
@@ -738,7 +739,7 @@ fun StickyNoteApp(
                                 modifier = Modifier.fillMaxSize().padding(top = 5.dp),
                                 textStyle = MaterialTheme.typography.bodyLarge.copy(
                                     color = Color(0xFFF0F0F0),
-                                    lineHeight = 30.dp.let { androidx.compose.ui.unit.TextUnit(it.value, androidx.compose.ui.unit.TextUnitType.Sp) }
+                                    lineHeight = 30.sp
                                 ),
                                 decorationBox = { innerTextField ->
                                     Box(Modifier.fillMaxSize()) {
