@@ -11,8 +11,9 @@ import androidx.core.app.NotificationCompat
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val title = intent.getStringExtra("task_title") ?: "Podsjetnik"
-        val taskId = intent.getLongExtra("task_id", System.currentTimeMillis())
+        val isNoteReminder = intent.hasExtra("note_id")
+        val title = if (isNoteReminder) intent.getStringExtra("note_title") ?: "Bilješka" else intent.getStringExtra("task_title") ?: "Zadatak"
+        val taskId = if (isNoteReminder) intent.getLongExtra("note_id", System.currentTimeMillis()) else intent.getLongExtra("task_id", System.currentTimeMillis())
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
@@ -28,7 +29,7 @@ class ReminderReceiver : BroadcastReceiver() {
         )
         val notification = NotificationCompat.Builder(context, "todo_reminders")
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Vrijeme je za zadatak")
+            .setContentTitle(if (isNoteReminder) "Podsjetnik za bilješku" else "Podsjetnik za zadatak")
             .setContentText(title)
             .setStyle(NotificationCompat.BigTextStyle().bigText(title))
             .setContentIntent(openApp)
