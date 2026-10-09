@@ -1,6 +1,15 @@
 package com.mrares095.stickynote
 
 import android.app.PendingIntent
+import android.app.AlarmManager
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.content.Context
 import android.content.IntentSender
 import android.os.Bundle
@@ -24,6 +33,49 @@ import com.google.android.gms.common.api.Scope
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.concurrent.thread
+
+data class TodoTask(
+    val id: Long,
+    val title: String,
+    val completed: Boolean = false,
+    val reminderAt: Long? = null
+)
+
+const val TASKS = "todo_tasks"
+
+private fun loadTasks(context: Context): List<TodoTask> {
+    val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(TASKS, null) ?: return emptyList()
+    return try {
+        val a = JSONArray(raw)
+        List(a.length()) { i ->
+            val o = a.getJSONObject(i)
+            TodoTask(o.getLong("id"), o.getString("title"), o.optBoolean("completed", false), o.optLong("reminderAt").takeIf { it > 0L })
+        }
+    } catch (_: Exception) { emptyList() }
+}
+
+private fun saveTasks(context: Context, tasks: List<TodoTask>) {
+    val a = JSONArray()
+    tasks.forEach { task -> a.put(JSONObject().apply {
+        put("id", task.id); put("title", task.title); put("completed", task.completed); put("reminderAt", task.reminderAt ?: 0L)
+    }) }
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(TASKS, a.toString()).apply()
+}
+
+private fun scheduleReminder(context: Context, task: TodoTask) {
+    val at = task.reminderAt ?: return
+    if (at <= System.currentTimeMillis()) return
+    val intent = Intent(context, ReminderReceiver::class.java).putExtra("task_id", task.id).putExtra("task_title", task.title)
+    val pending = PendingIntent.getBroadcast(context, task.id.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    val alarms = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
+}
+
+private fun cancelReminder(context: Context, taskId: Long) {
+    val intent = Intent(context, ReminderReceiver::class.java)
+    val pending = PendingIntent.getBroadcast(context, taskId.hashCode(), intent, PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
+    if (pending != null) (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(pending)
+}
 
 data class Note(
     val id: Long,
@@ -279,6 +331,11 @@ fun StickyNoteApp(
     var confirmPermanentDelete by remember { mutableStateOf<Note?>(null) }
     var confirmEmptyTrash by remember { mutableStateOf(false) }
     var confirmDeleteCategory by remember { mutableStateOf<String?>(null) }
+    var showTasks by remember { mutableStateOf(false) }
+    var tasks by remember { mutableStateOf(loadTasks(context)) }
+    var showAddTask by remember { mutableStateOf(false) }
+    var taskTitle by remember { mutableStateOf("") }
+    var taskReminderAt by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(openNoteId, notes) {
         if (openNoteId != null && editing == null) {
@@ -344,6 +401,7 @@ fun StickyNoteApp(
                 TopAppBar(
                     title = { Text("Sticky & Note") },
                     actions = {
+                        TextButton(onClick = { showTasks = !showTasks }) { Text(if (showTasks) "Bilješke" else "To-do / podsjetnici") }
                         TextButton(onClick = onConnectDrive) { Text(if (driveConnected) "Google Drive ✓" else "Google Drive") }
                         TextButton(onClick = onSyncDrive) { Text("Sync") }
                         TextButton(onClick = onCheckUpdate) { Text("Ažuriraj") }
@@ -352,7 +410,11 @@ fun StickyNoteApp(
             },
             floatingActionButton = {
                 FloatingActionButton(onClick = {
-                    editing = Note(
+                    if (showTasks) {
+                        taskTitle = ""
+                        taskReminderAt = null
+                        showAddTask = true
+                    } else editing = Note(
                         System.currentTimeMillis(),
                         "",
                         "",
@@ -362,6 +424,34 @@ fun StickyNoteApp(
             }
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
+                if (showTasks) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("To-do lista", style = MaterialTheme.typography.titleLarge)
+                        Text("${tasks.count { !it.completed }} preostalo")
+                    }
+                    if (tasks.isEmpty()) Text("Još nema zadataka. Dodaj prvi pomoću +.", Modifier.padding(16.dp))
+                    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+                        items(tasks.sortedWith(compareBy<TodoTask> { it.completed }.thenBy { it.reminderAt ?: Long.MAX_VALUE }), key = { it.id }) { task ->
+                            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    Checkbox(checked = task.completed, onCheckedChange = { checked ->
+                                        val updated = tasks.map { if (it.id == task.id) it.copy(completed = checked) else it }
+                                        tasks = updated; saveTasks(context, updated)
+                                        if (checked) cancelReminder(context, task.id) else task.reminderAt?.let { scheduleReminder(context, task) }
+                                    })
+                                    Column(Modifier.weight(1f)) {
+                                        Text(task.title, style = MaterialTheme.typography.bodyLarge, color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                                        task.reminderAt?.let { at -> Text("Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)), style = MaterialTheme.typography.bodySmall) }
+                                    }
+                                    TextButton(onClick = {
+                                        cancelReminder(context, task.id)
+                                        val updated = tasks.filterNot { it.id == task.id }; tasks = updated; saveTasks(context, updated)
+                                    }) { Text("Obriši") }
+                                }
+                            }
+                        }
+                    }
+                } else {
                 ScrollableTabRow(selectedTabIndex = categories.indexOf(selected).coerceAtLeast(0)) {
                     categories.forEach { category ->
                         Tab(selected = selected == category, onClick = { selected = category }, text = { Text(category) })
@@ -453,7 +543,47 @@ fun StickyNoteApp(
                         }
                     }
                 }
+                }
             }
+        }
+
+        if (showAddTask) {
+            AlertDialog(
+                onDismissRequest = { showAddTask = false },
+                title = { Text("Novi zadatak") },
+                text = {
+                    Column {
+                        OutlinedTextField(taskTitle, { taskTitle = it }, label = { Text("Što treba napraviti?") }, singleLine = true)
+                        Spacer(Modifier.height(12.dp))
+                        Text(if (taskReminderAt == null) "Bez podsjetnika" else "Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(taskReminderAt!!)))
+                        Row {
+                            TextButton(onClick = {
+                                val now = java.util.Calendar.getInstance()
+                                DatePickerDialog(context, { _, year, month, day ->
+                                    val chosen = java.util.Calendar.getInstance().apply { set(year, month, day) }
+                                    TimePickerDialog(context, { _, hour, minute ->
+                                        chosen.set(java.util.Calendar.HOUR_OF_DAY, hour); chosen.set(java.util.Calendar.MINUTE, minute); chosen.set(java.util.Calendar.SECOND, 0); chosen.set(java.util.Calendar.MILLISECOND, 0)
+                                        taskReminderAt = chosen.timeInMillis
+                                    }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
+                                }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                            }) { Text("Postavi datum i vrijeme") }
+                            TextButton(onClick = { taskReminderAt = null }) { Text("Ukloni") }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val title = taskTitle.trim()
+                        if (title.isNotEmpty()) {
+                            val task = TodoTask(System.currentTimeMillis(), title, false, taskReminderAt)
+                            val updated = tasks + task; tasks = updated; saveTasks(context, updated)
+                            task.reminderAt?.let { scheduleReminder(context, task) }
+                        }
+                        showAddTask = false
+                    }) { Text("Spremi") }
+                },
+                dismissButton = { TextButton(onClick = { showAddTask = false }) { Text("Odustani") } }
+            )
         }
 
         editing?.let { note ->
