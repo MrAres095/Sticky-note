@@ -903,3 +903,24 @@ fun StickyNoteApp(
         }
     }
 }
+
+
+/**
+ * AlarmManager alarms are cleared by Android after a reboot. Re-create future
+ * reminders from the existing local JSON store without changing note/task data.
+ */
+class BootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        loadTasks(context).forEach { task ->
+            if (task.reminderAt != null && task.reminderAt > System.currentTimeMillis()) {
+                scheduleReminder(context, task)
+            }
+        }
+        loadNotes(context).forEach { note ->
+            if (note.reminderAt != null && note.reminderAt > System.currentTimeMillis()) {
+                scheduleNoteReminder(context, note)
+            }
+        }
+    }
+}
