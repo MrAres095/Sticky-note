@@ -92,8 +92,9 @@ object GoogleDriveSync {
         root.put("notes", notesJson)
         root.put("categories", categoriesJson)
 
+        // With drive.file, query files created/opened by this app rather than appDataFolder.
         val query = URLEncoder.encode(
-            "name = '$FILE_NAME' and 'appDataFolder' in parents and trashed = false",
+            "name = '$FILE_NAME' and trashed = false",
             "UTF-8"
         )
         val listing = request(
