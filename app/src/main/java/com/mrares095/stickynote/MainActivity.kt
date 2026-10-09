@@ -97,6 +97,15 @@ private fun cancelReminder(context: Context, taskId: Long) {
     if (pending != null) (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(pending)
 }
 
+private fun cancelNoteReminder(context: Context, noteId: Long) {
+    val intent = Intent(context, ReminderReceiver::class.java).putExtra("note_id", noteId)
+    val pending = PendingIntent.getBroadcast(
+        context, noteId.hashCode() xor 0x4E4F5445, intent,
+        PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+    )
+    if (pending != null) (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(pending)
+}
+
 private fun scheduleNoteReminder(context: Context, note: Note) {
     val at = note.reminderAt ?: return
     if (at <= System.currentTimeMillis()) return
@@ -104,7 +113,7 @@ private fun scheduleNoteReminder(context: Context, note: Note) {
         .putExtra("note_id", note.id)
         .putExtra("note_title", note.title.ifBlank { "Bez naslova" })
     val pending = PendingIntent.getBroadcast(
-        context, note.id.hashCode(), intent,
+        context, note.id.hashCode() xor 0x4E4F5445, intent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
     val alarms = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -721,7 +730,7 @@ fun StickyNoteApp(
                             if (noteReminderAt != null && noteReminderAt!! > System.currentTimeMillis()) {
                                 scheduleNoteReminder(context, saved)
                             } else {
-                                cancelReminder(context, note.id)
+                                cancelNoteReminder(context, note.id)
                             }
                         }
                         editing = null
