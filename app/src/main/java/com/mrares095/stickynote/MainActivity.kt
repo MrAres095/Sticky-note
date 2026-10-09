@@ -1,6 +1,9 @@
 package com.mrares095.stickynote
 
 import android.app.PendingIntent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
@@ -16,7 +19,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
@@ -24,6 +29,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
@@ -38,7 +45,8 @@ data class TodoTask(
     val id: Long,
     val title: String,
     val completed: Boolean = false,
-    val reminderAt: Long? = null
+    val reminderAt: Long? = null,
+    val imageUri: String? = null
 )
 
 const val TASKS = "todo_tasks"
@@ -49,7 +57,7 @@ private fun loadTasks(context: Context): List<TodoTask> {
         val a = JSONArray(raw)
         List(a.length()) { i ->
             val o = a.getJSONObject(i)
-            TodoTask(o.getLong("id"), o.getString("title"), o.optBoolean("completed", false), o.optLong("reminderAt").takeIf { it > 0L })
+            TodoTask(o.getLong("id"), o.getString("title"), o.optBoolean("completed", false), o.optLong("reminderAt").takeIf { it > 0L }, o.optString("imageUri").takeIf { it.isNotBlank() && it != "null" })
         }
     } catch (_: Exception) { emptyList() }
 }
@@ -57,9 +65,21 @@ private fun loadTasks(context: Context): List<TodoTask> {
 private fun saveTasks(context: Context, tasks: List<TodoTask>) {
     val a = JSONArray()
     tasks.forEach { task -> a.put(JSONObject().apply {
-        put("id", task.id); put("title", task.title); put("completed", task.completed); put("reminderAt", task.reminderAt ?: 0L)
+        put("id", task.id); put("title", task.title); put("completed", task.completed); put("reminderAt", task.reminderAt ?: 0L); put("imageUri", task.imageUri ?: "")
     }) }
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(TASKS, a.toString()).apply()
+}
+
+private fun loadTaskThumbnail(context: Context, uriString: String): Bitmap? {
+    return try {
+        val uri = Uri.parse(uriString)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        while (bounds.outWidth / sample > 600 || bounds.outHeight / sample > 600) sample *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+    } catch (_: Exception) { null }
 }
 
 private fun scheduleReminder(context: Context, task: TodoTask) {
@@ -336,6 +356,13 @@ fun StickyNoteApp(
     var showAddTask by remember { mutableStateOf(false) }
     var taskTitle by remember { mutableStateOf("") }
     var taskReminderAt by remember { mutableStateOf<Long?>(null) }
+    var taskImageUri by remember { mutableStateOf<String?>(null) }
+    val taskImagePicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
+            taskImageUri = uri.toString()
+        }
+    }
 
     LaunchedEffect(showTasks) {
         if (showTasks && Build.VERSION.SDK_INT >= 33 && context is ComponentActivity && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -419,6 +446,7 @@ fun StickyNoteApp(
                     if (showTasks) {
                         taskTitle = ""
                         taskReminderAt = null
+                        taskImageUri = null
                         showAddTask = true
                     } else editing = Note(
                         System.currentTimeMillis(),
@@ -448,6 +476,10 @@ fun StickyNoteApp(
                                     Column(Modifier.weight(1f)) {
                                         Text(task.title, style = MaterialTheme.typography.bodyLarge, color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
                                         task.reminderAt?.let { at -> Text("Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)), style = MaterialTheme.typography.bodySmall) }
+                                        task.imageUri?.let { uri ->
+                                            val thumbnail = remember(uri) { loadTaskThumbnail(context, uri) }
+                                            if (thumbnail != null) Image(bitmap = thumbnail.asImageBitmap(), contentDescription = "Slika zadatka", modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit)
+                                        }
                                     }
                                     TextButton(onClick = {
                                         cancelReminder(context, task.id)
@@ -562,6 +594,14 @@ fun StickyNoteApp(
                         OutlinedTextField(taskTitle, { taskTitle = it }, label = { Text("Što treba napraviti?") }, singleLine = true)
                         Spacer(Modifier.height(12.dp))
                         Text(if (taskReminderAt == null) "Bez podsjetnika" else "Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(taskReminderAt!!)))
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            TextButton(onClick = { taskImagePicker.launch(arrayOf("image/*")) }) { Text(if (taskImageUri == null) "Dodaj sliku" else "Promijeni sliku") }
+                            TextButton(onClick = { taskImageUri = null }) { Text("Ukloni sliku") }
+                        }
+                        taskImageUri?.let { uri ->
+                            val thumbnail = remember(uri) { loadTaskThumbnail(context, uri) }
+                            if (thumbnail != null) Image(bitmap = thumbnail.asImageBitmap(), contentDescription = "Odabrana slika", modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit)
+                        }
                         Row {
                             TextButton(onClick = {
                                 val now = java.util.Calendar.getInstance()
@@ -581,7 +621,7 @@ fun StickyNoteApp(
                     TextButton(onClick = {
                         val title = taskTitle.trim()
                         if (title.isNotEmpty()) {
-                            val task = TodoTask(System.currentTimeMillis(), title, false, taskReminderAt)
+                            val task = TodoTask(System.currentTimeMillis(), title, false, taskReminderAt, taskImageUri)
                             val updated = tasks + task; tasks = updated; saveTasks(context, updated)
                             task.reminderAt?.let { scheduleReminder(context, task) }
                         }
