@@ -97,7 +97,7 @@ private fun saveNotes(context: Context, values: List<Note>) {
 }
 
 class MainActivity : ComponentActivity() {
-    private var driveAccessToken: String? = null
+    private var driveAccessToken: String? by mutableStateOf(null)
     private var driveStatusMessage by mutableStateOf<String?>(null)
     private var syncAfterAuthorization = false
 
@@ -109,10 +109,10 @@ class MainActivity : ComponentActivity() {
                         .getAuthorizationResultFromIntent(result.data!!)
                     handleAuthorizationResult(authorizationResult)
                 } catch (e: Exception) {
-                    showDriveMessage("Google autorizacija nije uspjela.")
+                    showDriveMessage("Google autorizacija nije uspjela (${e.javaClass.simpleName}): ${e.message ?: "nema detalja"}")
                 }
             } else {
-                showDriveMessage("Google autorizacija je otkazana.")
+                showDriveMessage("Google autorizacija nije dovršena (resultCode=${result.resultCode}). Pokušaj ponovno; ako se ponovi, pošalji mi točnu poruku.")
             }
         }
 
@@ -141,7 +141,9 @@ class MainActivity : ComponentActivity() {
         Identity.getAuthorizationClient(this)
             .authorize(request)
             .addOnSuccessListener { handleAuthorizationResult(it) }
-            .addOnFailureListener { showDriveMessage("Google autorizacija nije dostupna: ${it.message}") }
+            .addOnFailureListener { error ->
+                showDriveMessage("Google autorizacija nije dostupna (${error.javaClass.simpleName}): ${error.message ?: "nema detalja"}")
+            }
     }
 
     private fun handleAuthorizationResult(result: AuthorizationResult) {
