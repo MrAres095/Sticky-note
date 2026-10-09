@@ -23,7 +23,7 @@ class ReminderReceiver : BroadcastReceiver() {
             )
         }
         val openApp = PendingIntent.getActivity(
-            context, taskId.hashCode(),
+            context, if (isNoteReminder) taskId.hashCode() xor 0x4E4F5445 else taskId.hashCode(),
             Intent(context, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 if (isNoteReminder) putExtra("open_note_id", taskId)
