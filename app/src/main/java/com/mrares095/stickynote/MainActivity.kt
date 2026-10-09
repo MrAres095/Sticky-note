@@ -666,78 +666,145 @@ fun StickyNoteApp(
             var noteColor by remember(note.id) { mutableLongStateOf(note.color) }
             var noteReminderAt by remember(note.id) { mutableStateOf(note.reminderAt) }
 
-            AlertDialog(
+            androidx.compose.ui.window.Dialog(
                 onDismissRequest = { editing = null },
-                title = { Text(if (note.title.isBlank()) "Nova bilješka" else "Uredi bilješku") },
-                text = {
-                    Column {
-                        OutlinedTextField(title, { title = it }, label = { Text("Naslov") }, singleLine = true)
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(body, { body = it }, label = { Text("Bilješka") }, minLines = 5)
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color(0xFF17191D)
+                ) {
+                    Column(Modifier.fillMaxSize()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            TextButton(onClick = { editing = null }) { Text("Natrag") }
+                            Text(
+                                if (note.title.isBlank()) "Nova bilješka" else "Bilješka",
+                                style = MaterialTheme.typography.titleLarge
+                            )
                             TextButton(onClick = {
-                                val now = java.util.Calendar.getInstance()
-                                DatePickerDialog(context, { _, year, month, day ->
-                                    val chosen = java.util.Calendar.getInstance().apply { set(year, month, day) }
-                                    TimePickerDialog(context, { _, hour, minute ->
-                                        chosen.set(java.util.Calendar.HOUR_OF_DAY, hour)
-                                        chosen.set(java.util.Calendar.MINUTE, minute)
-                                        chosen.set(java.util.Calendar.SECOND, 0)
-                                        chosen.set(java.util.Calendar.MILLISECOND, 0)
-                                        noteReminderAt = chosen.timeInMillis
-                                    }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
-                                }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
-                            }) { Text(if (noteReminderAt == null) "Dodaj podsjetnik" else "Promijeni podsjetnik") }
-                            TextButton(onClick = { noteReminderAt = null }) { Text("Ukloni") }
+                                if (title.isNotBlank() || body.isNotBlank()) {
+                                    val saved = note.copy(
+                                        title = title,
+                                        text = body,
+                                        category = if (cat == "🗑 Otpad" || cat == "Sve") "Osobno" else cat,
+                                        color = noteColor,
+                                        trashed = false,
+                                        reminderAt = noteReminderAt,
+                                        updatedAt = System.currentTimeMillis()
+                                    )
+                                    persistNotes((notes.filterNot { it.id == note.id }) + saved)
+                                    if (noteReminderAt != null && noteReminderAt!! > System.currentTimeMillis()) {
+                                        scheduleNoteReminder(context, saved)
+                                    } else {
+                                        cancelNoteReminder(context, note.id)
+                                    }
+                                } else {
+                                    cancelNoteReminder(context, note.id)
+                                }
+                                editing = null
+                            }) { Text("Spremi") }
                         }
-                        noteReminderAt?.let { at ->
-                            Text("Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)))
-                        }
-                        Text("Kategorija: $cat")
-                        Spacer(Modifier.height(8.dp))
-                        Text("Boja bilješke")
-                        Row {
-                            listOf(0xFF252525L, 0xFF5A3D31L, 0xFF5B4B1FL, 0xFF3E5739L, 0xFF304B63L, 0xFF563E63L, 0xFF633C4AL).forEach { color ->
-                                TextButton(onClick = { noteColor = color }) { Text("●", color = Color(color)) }
+
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                            placeholder = { Text("Naslov") },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.titleLarge
+                        )
+
+                        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                                val lineGap = 30.dp.toPx()
+                                var y = lineGap
+                                while (y < size.height) {
+                                    drawLine(
+                                        color = Color(0xFF343A45),
+                                        start = androidx.compose.ui.geometry.Offset(0f, y),
+                                        end = androidx.compose.ui.geometry.Offset(size.width, y),
+                                        strokeWidth = 1.dp.toPx()
+                                    )
+                                    y += lineGap
+                                }
                             }
+                            androidx.compose.foundation.text.BasicTextField(
+                                value = body,
+                                onValueChange = { body = it },
+                                modifier = Modifier.fillMaxSize().padding(top = 5.dp),
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                    color = Color(0xFFF0F0F0),
+                                    lineHeight = 30.dp.let { androidx.compose.ui.unit.TextUnit(it.value, androidx.compose.ui.unit.TextUnitType.Sp) }
+                                ),
+                                decorationBox = { innerTextField ->
+                                    Box(Modifier.fillMaxSize()) {
+                                        if (body.isEmpty()) {
+                                            Text("Započni pisati bilješku…", color = Color(0xFF858B96))
+                                        }
+                                        innerTextField()
+                                    }
+                                }
+                            )
                         }
-                        Row {
-                            categories.filter { it != "Sve" }.forEach { c ->
-                                TextButton(onClick = { cat = c }) { Text(c) }
+
+                        Column(
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("Kategorija", style = MaterialTheme.typography.labelLarge)
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                categories.filter { it != "Sve" }.forEach { category ->
+                                    FilterChip(
+                                        selected = cat == category,
+                                        onClick = { cat = category },
+                                        label = { Text(category) }
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text("Boja bilješke", style = MaterialTheme.typography.labelLarge)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                listOf(0xFF252525L, 0xFF5A3D31L, 0xFF5B4B1FL, 0xFF3E5739L, 0xFF304B63L, 0xFF563E63L, 0xFF633C4AL).forEach { color ->
+                                    Surface(
+                                        modifier = Modifier.size(32.dp).clickable { noteColor = color },
+                                        shape = androidx.compose.foundation.shape.CircleShape,
+                                        color = Color(color),
+                                        border = if (noteColor == color) androidx.compose.foundation.BorderStroke(2.dp, Color.White) else null
+                                    ) {}
+                                }
+                            }
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                TextButton(onClick = {
+                                    val now = java.util.Calendar.getInstance()
+                                    DatePickerDialog(context, { _, year, month, day ->
+                                        val chosen = java.util.Calendar.getInstance().apply { set(year, month, day) }
+                                        TimePickerDialog(context, { _, hour, minute ->
+                                            chosen.set(java.util.Calendar.HOUR_OF_DAY, hour)
+                                            chosen.set(java.util.Calendar.MINUTE, minute)
+                                            chosen.set(java.util.Calendar.SECOND, 0)
+                                            chosen.set(java.util.Calendar.MILLISECOND, 0)
+                                            noteReminderAt = chosen.timeInMillis
+                                        }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
+                                    }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                                }) { Text(if (noteReminderAt == null) "Dodaj podsjetnik" else "Promijeni podsjetnik") }
+                                TextButton(onClick = { noteReminderAt = null }) { Text("Ukloni") }
+                            }
+                            noteReminderAt?.let { at ->
+                                Text(
+                                    "Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
                             }
                         }
                     }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        if (title.isNotBlank() || body.isNotBlank()) {
-                            persistNotes(
-                                (notes.filterNot { it.id == note.id }) + note.copy(
-                                    title = title,
-                                    text = body,
-                                    category = if (cat == "🗑 Otpad") "Osobno" else cat,
-                                    color = noteColor,
-                                    trashed = false,
-                                    reminderAt = noteReminderAt,
-                                    updatedAt = System.currentTimeMillis()
-                                )
-                            )
-                            val saved = notes.firstOrNull { it.id == note.id }?.copy(
-                                title = title,
-                                reminderAt = noteReminderAt
-                            ) ?: note.copy(title = title, reminderAt = noteReminderAt)
-                            if (noteReminderAt != null && noteReminderAt!! > System.currentTimeMillis()) {
-                                scheduleNoteReminder(context, saved)
-                            } else {
-                                cancelNoteReminder(context, note.id)
-                            }
-                        }
-                        editing = null
-                    }) { Text("Spremi") }
-                },
-                dismissButton = { TextButton(onClick = { editing = null }) { Text("Odustani") } }
-            )
+                }
+            }
         }
 
         confirmPermanentDelete?.let { note ->
