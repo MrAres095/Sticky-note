@@ -85,6 +85,15 @@ jobs:
           keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
           echo "Existing keystore: OK"
           echo "Alias: OK"
+          CERT_SHA1="$(keytool -list -v -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA1:/{print $2; exit}')"
+          CERT_SHA256="$(keytool -list -v -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/{print $2; exit}')"
+          echo "Signing certificate SHA-1: $CERT_SHA1"
+          echo "Signing certificate SHA-256: $CERT_SHA256"
+          {
+            echo "### Release signing certificate"
+            echo "- SHA-1: `$CERT_SHA1`"
+            echo "- SHA-256: `$CERT_SHA256`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           cat > keystore.properties <<EOF
           storeFile=$HOME/.android/sticky-notes-release.jks
