@@ -519,17 +519,12 @@ fun StickyNoteApp(
     var showAddTask by remember { mutableStateOf(false) }
     var taskTitle by remember { mutableStateOf("") }
     var taskReminderAt by remember { mutableStateOf<Long?>(null) }
+    var taskReminderPermissionDenied by remember { mutableStateOf(false) }
     var taskImageUri by remember { mutableStateOf<String?>(null) }
     val taskImagePicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
             taskImageUri = uri.toString()
-        }
-    }
-
-    LaunchedEffect(showTasks) {
-        if (showTasks && Build.VERSION.SDK_INT >= 33 && context is ComponentActivity && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            context.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
         }
     }
 
