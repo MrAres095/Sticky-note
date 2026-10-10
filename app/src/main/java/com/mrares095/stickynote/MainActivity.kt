@@ -643,7 +643,7 @@ fun StickyNoteApp(
                 TopAppBar(
                     title = { Text("Sticky & Note") },
                     actions = {
-                        TextButton(onClick = { showTasks = !showTasks }) { Text(if (showTasks) "Bilješke" else "To-do / podsjetnici") }
+                        
                         TextButton(onClick = onConnectDrive) { Text(if (driveConnected) "Google Drive ✓" else "Google Drive") }
                         TextButton(onClick = onSyncDrive) { Text("Sync") }
                         TextButton(onClick = onCheckUpdate) { Text("Ažuriraj") }
