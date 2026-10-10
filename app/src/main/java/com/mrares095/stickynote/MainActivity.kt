@@ -54,15 +54,38 @@ data class TodoTask(
 
 const val TASKS = "todo_tasks"
 
+private fun decodeTasks(raw: String): List<TodoTask> {
+    val a = JSONArray(raw)
+    return List(a.length()) { i ->
+        val o = a.getJSONObject(i)
+        TodoTask(
+            o.getLong("id"),
+            o.getString("title"),
+            o.optBoolean("completed", false),
+            o.optLong("reminderAt").takeIf { it > 0L },
+            o.optString("imageUri").takeIf { it.isNotBlank() && it != "null" }
+        )
+    }
+}
+
 private fun loadTasks(context: Context): List<TodoTask> {
-    val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(TASKS, null) ?: return emptyList()
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString(TASKS, null) ?: return emptyList()
     return try {
-        val a = JSONArray(raw)
-        List(a.length()) { i ->
-            val o = a.getJSONObject(i)
-            TodoTask(o.getLong("id"), o.getString("title"), o.optBoolean("completed", false), o.optLong("reminderAt").takeIf { it > 0L }, o.optString("imageUri").takeIf { it.isNotBlank() && it != "null" })
+        decodeTasks(raw)
+    } catch (_: Exception) {
+        val backup = prefs.getString("${TASKS}_backup", null)
+        prefs.edit().putString("${TASKS}_corrupt_backup", raw).apply()
+        if (backup != null) {
+            try {
+                decodeTasks(backup).also { prefs.edit().putString(TASKS, backup).apply() }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
         }
-    } catch (_: Exception) { emptyList() }
+    }
 }
 
 private fun saveTasks(context: Context, tasks: List<TodoTask>) {
@@ -70,7 +93,11 @@ private fun saveTasks(context: Context, tasks: List<TodoTask>) {
     tasks.forEach { task -> a.put(JSONObject().apply {
         put("id", task.id); put("title", task.title); put("completed", task.completed); put("reminderAt", task.reminderAt ?: 0L); put("imageUri", task.imageUri ?: "")
     }) }
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(TASKS, a.toString()).apply()
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val current = prefs.getString(TASKS, null)
+    val edit = prefs.edit()
+    if (current != null) edit.putString("${TASKS}_backup", current)
+    edit.putString(TASKS, a.toString()).apply()
 }
 
 private fun loadTaskThumbnail(context: Context, uriString: String): Bitmap? {
