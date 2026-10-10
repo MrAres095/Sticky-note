@@ -21,17 +21,30 @@ class NoteListWidgetService : RemoteViewsService() {
         override fun onDataSetChanged() {
             val prefs = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
             val tab = prefs.getString("list_widget_tab_$widgetId", "Sve") ?: "Sve"
-            val raw = prefs.getString(NOTES, null)
             val loaded = mutableListOf<Item>()
             try {
-                if (!raw.isNullOrBlank()) {
-                    val array = JSONArray(raw)
-                    for (i in 0 until array.length()) {
-                        val o = array.getJSONObject(i)
-                        val category = o.optString("category", "Sve")
-                        val trashed = o.optBoolean("trashed", category == "🗑 Otpad")
-                        if (!trashed && (tab == "Sve" || category == tab)) {
-                            loaded += Item(o.optLong("id"), o.optString("title").ifBlank { "Bez naslova" }, o.optString("text"))
+                if (tab == "To-do lista") {
+                    val rawTasks = prefs.getString(TASKS, null)
+                    if (!rawTasks.isNullOrBlank()) {
+                        val array = JSONArray(rawTasks)
+                        for (i in 0 until array.length()) {
+                            val o = array.getJSONObject(i)
+                            val completed = o.optBoolean("completed", false)
+                            val title = o.optString("title").ifBlank { "Stavka" }
+                            loaded += Item(o.optLong("id"), (if (completed) "✓  " else "□  ") + title, "")
+                        }
+                    }
+                } else {
+                    val raw = prefs.getString(NOTES, null)
+                    if (!raw.isNullOrBlank()) {
+                        val array = JSONArray(raw)
+                        for (i in 0 until array.length()) {
+                            val o = array.getJSONObject(i)
+                            val category = o.optString("category", "Sve")
+                            val trashed = o.optBoolean("trashed", category == "🗑 Otpad")
+                            if (!trashed && (tab == "Sve" || category == tab)) {
+                                loaded += Item(o.optLong("id"), o.optString("title").ifBlank { "Bez naslova" }, o.optString("text"))
+                            }
                         }
                     }
                 }
