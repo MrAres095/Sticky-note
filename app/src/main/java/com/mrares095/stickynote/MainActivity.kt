@@ -517,7 +517,7 @@ fun StickyNoteApp(
     var serverConfigError by remember { mutableStateOf<String?>(null) }
     var tasks by remember { mutableStateOf(loadTasks(context)) }
     var taskListTitle by remember {
-        mutableStateOf(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("todo_list_title", "To-do lista") ?: "To-do lista")
+        mutableStateOf(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("todo_list_title", "") ?: "")
     }
     var showRenameTaskList by remember { mutableStateOf(false) }
     var taskListTitleDraft by remember { mutableStateOf(taskListTitle) }
@@ -678,7 +678,7 @@ fun StickyNoteApp(
                                 },
                                 contentPadding = PaddingValues(0.dp)
                             ) {
-                                Text(taskListTitle, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+                                Text(taskListTitle.ifBlank { "Odaberi popis" }, style = MaterialTheme.typography.headlineSmall, color = if (taskListTitle.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
                             }
                             Text("${tasks.count { !it.completed }} preostalo · ${tasks.count { it.completed }} dovršeno", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -899,7 +899,7 @@ fun StickyNoteApp(
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        val newTitle = taskListTitleDraft.trim().ifBlank { "To-do lista" }
+                        val newTitle = taskListTitleDraft.trim()
                         taskListTitle = newTitle
                         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("todo_list_title", newTitle).apply()
                         showRenameTaskList = false
