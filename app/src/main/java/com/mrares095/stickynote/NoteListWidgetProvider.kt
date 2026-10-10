@@ -15,7 +15,7 @@ class NoteListWidgetProvider : AppWidgetProvider() {
 
     override fun onDeleted(context: Context, ids: IntArray) {
         val edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-        ids.forEach { edit.remove("list_widget_tab_$it") }
+        ids.forEach { edit.remove("list_widget_tab_$it"); edit.remove("list_widget_todo_id_$it") }
         edit.apply()
     }
 
@@ -34,11 +34,18 @@ class NoteListWidgetProvider : AppWidgetProvider() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             views.setPendingIntentTemplate(R.id.widget_note_list_items, open)
-            val selectedTab = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString("list_widget_tab_$widgetId", "Sve") ?: "Sve"
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val selectedTab = prefs.getString("list_widget_tab_$widgetId", "Sve") ?: "Sve"
+            val todoListId = prefs.getString("list_widget_todo_id_$widgetId", "default") ?: "default"
+            val todoListTitle = try {
+                val lists = org.json.JSONArray(prefs.getString("todo_lists", "[]"))
+                (0 until lists.length()).map { lists.getJSONObject(it) }
+                    .firstOrNull { it.optString("id") == todoListId }
+                    ?.optString("title")
+            } catch (_: Exception) { null }
             views.setTextViewText(
                 R.id.widget_list_title,
-                if (selectedTab == "To-do lista") "To-do lista" else if (selectedTab == "Sve") "Bilješke" else "Bilješke · $selectedTab"
+                if (selectedTab == "To-do lista") "To-do · ${todoListTitle ?: "Moj prvi popis"}" else if (selectedTab == "Sve") "Bilješke" else "Bilješke · $selectedTab"
             )
             manager.updateAppWidget(widgetId, views)
             manager.notifyAppWidgetViewDataChanged(widgetId, R.id.widget_note_list_items)
