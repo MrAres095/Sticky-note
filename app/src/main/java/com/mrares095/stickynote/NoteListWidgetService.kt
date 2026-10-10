@@ -14,7 +14,7 @@ class NoteListWidgetService : RemoteViewsService() {
         private val context: android.content.Context,
         private val widgetId: Int
     ) : RemoteViewsFactory {
-        private data class Item(val id: Long, val title: String, val text: String)
+        private data class Item(val id: Long, val title: String, val text: String, val isTask: Boolean = false)
         private var items: List<Item> = emptyList()
 
         override fun onCreate() = Unit
@@ -31,7 +31,7 @@ class NoteListWidgetService : RemoteViewsService() {
                             val o = array.getJSONObject(i)
                             val completed = o.optBoolean("completed", false)
                             val title = o.optString("title").ifBlank { "Stavka" }
-                            loaded += Item(o.optLong("id"), (if (completed) "✓  " else "□  ") + title, "")
+                            loaded += Item(o.optLong("id"), (if (completed) "✓  " else "□  ") + title, "", isTask = true)
                         }
                     }
                 } else {
@@ -58,7 +58,7 @@ class NoteListWidgetService : RemoteViewsService() {
             return RemoteViews(context.packageName, R.layout.widget_note_list_item).apply {
                 setTextViewText(R.id.widget_item_title, item.title)
                 setTextViewText(R.id.widget_item_text, item.text)
-                setOnClickFillInIntent(R.id.widget_item_root, Intent().putExtra("open_note_id", item.id))
+                setOnClickFillInIntent(R.id.widget_item_root, Intent().apply { if (!item.isTask) putExtra("open_note_id", item.id) })
             }
         }
         override fun getLoadingView(): RemoteViews? = null
