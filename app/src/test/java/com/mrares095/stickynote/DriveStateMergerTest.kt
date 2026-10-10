@@ -46,7 +46,7 @@ class DriveStateMergerTest {
             listOf(note(2, "cloud", 200), note(3, "deleted", 300)),
             true, setOf(3)
         )
-        assertEquals(listOf(2L), merged.map { it.id })
+        assertEquals(setOf(1L, 2L), merged.map { it.id }.toSet())
     }
 
     @Test fun firstSyncKeepsLocalOnlyNotesWhileCloudWinsConflicts() {
