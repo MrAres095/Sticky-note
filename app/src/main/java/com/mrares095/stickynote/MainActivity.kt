@@ -678,34 +678,83 @@ fun StickyNoteApp(
                             }) { Text("Ukloni dovršene") }
                         }
                     }
-                    if (tasks.isEmpty()) Text("Još nema zadataka. Dodaj prvi pomoću +.", Modifier.padding(16.dp))
-                    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-                        items(tasks.sortedWith(compareBy<TodoTask> { it.completed }.thenBy { it.reminderAt ?: Long.MAX_VALUE }), key = { it.id }) { task ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-                                colors = CardDefaults.cardColors(containerColor = if (task.completed) Color(0xFF202329) else Color(0xFF292D35)),
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
+                        item {
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                             ) {
-                                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Text("Stavke popisa", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick = {
+                                    taskTitle = ""
+                                    taskReminderAt = null
+                                    taskImageUri = null
+                                    showAddTask = true
+                                }) { Text("＋ Stavka popisa") }
+                            }
+                        }
+                        if (tasks.isEmpty()) {
+                            item { Text("Dodaj prvu stavku popisa.", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        }
+                        items(tasks.sortedWith(compareBy<TodoTask> { it.completed }.thenBy { it.reminderAt ?: Long.MAX_VALUE }), key = { it.id }) { task ->
+                            Column(Modifier.fillMaxWidth()) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    Text("⠿", modifier = Modifier.padding(end = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleLarge)
                                     Checkbox(checked = task.completed, onCheckedChange = { checked ->
                                         val updated = tasks.map { if (it.id == task.id) it.copy(completed = checked) else it }
-                                        tasks = updated; saveTasks(context, updated)
+                                        tasks = updated
+                                        saveTasks(context, updated)
                                         if (checked) cancelReminder(context, task.id) else task.reminderAt?.let { scheduleReminder(context, task) }
                                     })
-                                    Column(Modifier.weight(1f).padding(start = 6.dp)) {
-                                        Text(task.title, style = MaterialTheme.typography.titleMedium, color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
-                                        task.reminderAt?.let { at -> Text("◷ " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+                                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                                        Text(
+                                            task.title,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        task.reminderAt?.let { at ->
+                                            Text("◷ " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                        }
                                         task.imageUri?.let { uri ->
                                             val thumbnail = remember(uri) { loadTaskThumbnail(context, uri) }
-                                            if (thumbnail != null) Image(bitmap = thumbnail.asImageBitmap(), contentDescription = "Slika zadatka", modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit)
+                                            if (thumbnail != null) Image(bitmap = thumbnail.asImageBitmap(), contentDescription = "Slika zadatka", modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp).padding(top = 8.dp), contentScale = ContentScale.Fit)
                                         }
                                     }
                                     TextButton(onClick = {
                                         cancelReminder(context, task.id)
-                                        val updated = tasks.filterNot { it.id == task.id }; tasks = updated; saveTasks(context, updated)
-                                    }) { Text("Obriši") }
+                                        val updated = tasks.filterNot { it.id == task.id }
+                                        tasks = updated
+                                        saveTasks(context, updated)
+                                    }) { Text("⋮") }
                                 }
+                                Divider(color = Color(0xFF343A45))
                             }
+                        }
+                        item {
+                            TextButton(
+                                onClick = {
+                                    taskTitle = ""
+                                    taskReminderAt = null
+                                    taskImageUri = null
+                                    showAddTask = true
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                            ) {
+                                Text("＋    Stavka popisa", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Surface(
+                                modifier = Modifier.padding(top = 12.dp),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                color = Color(0xFF34333A)
+                            ) {
+                                Text("Stvari", modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp), color = MaterialTheme.colorScheme.onSurface)
+                            }
+                            Spacer(Modifier.height(80.dp))
                         }
                     }
                 } else {
@@ -1119,16 +1168,16 @@ fun StickyNoteApp(
                             )
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text("Privitak", style = MaterialTheme.typography.labelLarge)
+                                    Text("Slika bilješke", style = MaterialTheme.typography.labelLarge)
                                     Text(
-                                        noteAttachmentUri?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "Nema privitka",
+                                        noteAttachmentUri?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "Nema slike",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color(0xFFADB4C0),
                                         maxLines = 1
                                     )
                                 }
-                                TextButton(onClick = { noteAttachmentPicker.launch(arrayOf("*/*")) }) {
-                                    Text(if (noteAttachmentUri == null) "＋ Dodaj" else "Promijeni")
+                                TextButton(onClick = { noteAttachmentPicker.launch(arrayOf("image/*")) }) {
+                                    Text(if (noteAttachmentUri == null) "＋ Dodaj sliku" else "Promijeni sliku")
                                 }
                                 if (noteAttachmentUri != null) TextButton(onClick = { noteAttachmentUri = null }) { Text("Ukloni") }
                             }
