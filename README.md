@@ -50,8 +50,30 @@ Add these repository secrets in GitHub:
 
 The workflow at `.github/workflows/build-release.yml` automatically builds a signed APK on every push to `main`, stores it as an artifact, and publishes it as a GitHub Release.
 
+### Android pre-server readiness
+
+The Android CI workflow runs:
+
+- `:app:testDebugUnitTest` — validates server URL security rules and Drive merge/deletion behavior.
+- `:app:assembleDebug` — verifies that the app compiles and produces a debug APK.
+
+The app currently includes the full-screen lined note editor, editable categories, stronger note colors, local note attachments, separate multi-line To-do entry, note/task reminders, reminder restoration after reboot, a configurable future server URL, and Google Drive note/category sync. Local notes, tasks, and categories are backed up before each write; malformed JSON is preserved for recovery rather than silently discarded.
+
+Permanent note deletion and category deletion use sync tombstones so older Drive data cannot resurrect them. Device-local attachment URIs are deliberately not treated as cloud attachment URLs.
+
+Before enabling the shared backend, finish the real-device acceptance check with the existing release-signed install and a real Google account:
+
+1. Confirm existing notes and widgets survive an update.
+2. Create/edit notes, attach and open a file, restart the app, and verify the attachment still opens on that device.
+3. Add several To-do lines at once; check off, delete, and remove completed tasks.
+4. Test allowed/denied notification permission, note/task reminder delivery, tap-through, and reboot rescheduling.
+5. Sync two devices with the same Drive account; verify note/category edits, permanent deletions, and conflicts do not resurrect stale data.
+6. Confirm the installed APK is signed with the same original release key before distributing an update.
+
+The shared server URL can be changed in the app settings, but server synchronization remains disabled until the backend, authentication, migrations, conflict handling, attachment storage, and API tests are ready.
+
 ### Versioning
 
-GitHub Actions automatically assigns an increasing `versionCode` and `1.0.x` version name for each build.
+GitHub Actions automatically assigns an increasing `versionCode` and `1.0.x` version name for each release build.
 
 Never commit the JKS, passwords, or `keystore.properties`.
