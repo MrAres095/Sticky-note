@@ -139,10 +139,18 @@ data class Note(
     val attachmentUri: String? = null
 )
 
+data class MergedDriveState(
+    val notes: List<Note>,
+    val categories: List<String>,
+    val deletedNoteIds: Set<Long>,
+    val deletedCategories: Set<String>
+)
+
 const val PREFS = "sticky_note_data"
 const val NOTES = "notes"
 const val CATEGORIES = "categories"
 private const val DELETED_NOTE_IDS = "drive_deleted_note_ids"
+private const val DELETED_CATEGORIES = "drive_deleted_categories"
 private const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
 private fun loadCategories(context: Context): List<String> {
@@ -169,6 +177,20 @@ private fun saveDeletedNoteIds(context: Context, ids: Set<Long>) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .edit()
         .putStringSet(DELETED_NOTE_IDS, ids.filter { it > 0L }.map { it.toString() }.toSet())
+        .apply()
+}
+
+private fun loadDeletedCategories(context: Context): Set<String> =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getStringSet(DELETED_CATEGORIES, emptySet())
+        .orEmpty()
+        .filter { it.isNotBlank() && it != "Sve" }
+        .toSet()
+
+private fun saveDeletedCategories(context: Context, values: Set<String>) {
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putStringSet(DELETED_CATEGORIES, values.filter { it.isNotBlank() && it != "Sve" }.toSet())
         .apply()
 }
 
@@ -304,17 +326,19 @@ class MainActivity : ComponentActivity() {
         val current = loadNotes(this)
         val currentCategories = loadCategories(this)
         val currentDeletedNoteIds = loadDeletedNoteIds(this)
+        val currentDeletedCategories = loadDeletedCategories(this)
 
         thread {
             try {
                 val remote = GoogleDriveSync.downloadState(token)
-                val merged: Triple<List<Note>, List<String>, Set<Long>> = if (remote == null) {
-                    GoogleDriveSync.uploadState(token, current, currentCategories, currentDeletedNoteIds)
-                    Triple(current, currentCategories, currentDeletedNoteIds)
+                val merged: MergedDriveState = if (remote == null) {
+                    GoogleDriveSync.uploadState(token, current, currentCategories, currentDeletedNoteIds, currentDeletedCategories)
+                    MergedDriveState(current, currentCategories, currentDeletedNoteIds, currentDeletedCategories)
                 } else {
                     val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     val firstSync = !prefs.getBoolean("drive_sync_initialized", false)
                     val deletedNoteIds = currentDeletedNoteIds + remote.deletedNoteIds
+                    val deletedCategories = currentDeletedCategories + remote.deletedCategories
 
                     val localIsFreshInstall = current.size == 1 &&
                         current.first().id == 1L &&
@@ -344,32 +368,34 @@ class MainActivity : ComponentActivity() {
                     val notes = mergedNotes.filterNot { it.id in deletedNoteIds }
                     val categories = (currentCategories + remote.categories)
                         .distinct()
-                        .ifEmpty { listOf("Sve", "Osobno", "Recepti") }
+                        .filterNot { it in deletedCategories }
+                        .ifEmpty { listOf("Sve") }
 
-                    GoogleDriveSync.uploadState(token, notes, categories, deletedNoteIds)
-                    Triple(notes, categories, deletedNoteIds)
+                    GoogleDriveSync.uploadState(token, notes, categories, deletedNoteIds, deletedCategories)
+                    MergedDriveState(notes, categories, deletedNoteIds, deletedCategories)
                 }
 
                 runOnUiThread {
-                    saveNotes(this, merged.first)
-                    saveDeletedNoteIds(this, merged.third)
+                    saveNotes(this, merged.notes)
+                    saveDeletedNoteIds(this, merged.deletedNoteIds)
+                    saveDeletedCategories(this, merged.deletedCategories)
                     // Reconcile Android alarms after a Drive download/merge. A reminder can
                     // arrive from another device, be moved, or have been trashed remotely.
                     val reminderNow = System.currentTimeMillis()
-                    merged.first.forEach { note ->
+                    merged.notes.forEach { note ->
                         if (!note.trashed && note.reminderAt != null && note.reminderAt > reminderNow) {
                             scheduleNoteReminder(this, note)
                         } else {
                             cancelNoteReminder(this, note.id)
                         }
                     }
-                    saveCategories(this, merged.second)
+                    saveCategories(this, merged.categories)
                     getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                         .edit()
                         .putBoolean("drive_sync_initialized", true)
                         .apply()
                     NoteWidgetProvider.updateAll(this)
-                    showDriveMessage("Google Drive sinkronizacija završena. " + merged.first.size + " bilješki.")
+                    showDriveMessage("Google Drive sinkronizacija završena. " + merged.notes.size + " bilješki.")
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -504,6 +530,7 @@ fun StickyNoteApp(
 
     fun deleteCategory(category: String) {
         if (category == "Sve") return
+        saveDeletedCategories(context, loadDeletedCategories(context) + category)
         val fallback = categories.firstOrNull { it != "Sve" && it != category } ?: "Osobno"
         val nextCategories = if (fallback == "Osobno" && !categories.contains("Osobno")) {
             categories.filterNot { it == category } + "Osobno"
@@ -1037,6 +1064,7 @@ fun StickyNoteApp(
                     TextButton(onClick = {
                         val n = newTabName.trim()
                         if (n.isNotEmpty() && !categories.contains(n)) {
+                            saveDeletedCategories(context, loadDeletedCategories(context) - n)
                             persistCategories(categories + n)
                             selected = n
                         }
@@ -1057,8 +1085,11 @@ fun StickyNoteApp(
                     TextButton(onClick = {
                         val n = renameText.trim()
                         if (n.isNotEmpty() && n != "Sve" && !categories.contains(n)) {
+                            val deletedCategories = loadDeletedCategories(context) + old - n
+                            saveDeletedCategories(context, deletedCategories)
                             persistCategories(categories.map { if (it == old) n else it })
-                            persistNotes(notes.map { if (it.category == old) it.copy(category = n) else it })
+                            val renamedAt = System.currentTimeMillis()
+                            persistNotes(notes.map { if (it.category == old) it.copy(category = n, updatedAt = renamedAt) else it })
                             if (selected == old) selected = n
                         }
                         showRenameTab = null
