@@ -893,7 +893,13 @@ fun StickyNoteApp(
                         chosen.set(java.util.Calendar.MINUTE, minute)
                         chosen.set(java.util.Calendar.SECOND, 0)
                         chosen.set(java.util.Calendar.MILLISECOND, 0)
-                        noteReminderAt = chosen.timeInMillis
+                        if (chosen.timeInMillis > System.currentTimeMillis()) {
+                            noteReminderAt = chosen.timeInMillis
+                            noteReminderPermissionDenied = false
+                        } else {
+                            noteReminderAt = null
+                            android.widget.Toast.makeText(context, "Odaberi vrijeme u budućnosti.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
                     }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
                 }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
             }
