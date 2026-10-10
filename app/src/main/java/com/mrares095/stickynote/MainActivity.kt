@@ -308,7 +308,7 @@ class MainActivity : ComponentActivity() {
         thread {
             try {
                 val remote = GoogleDriveSync.downloadState(token)
-                val merged: Pair<List<Note>, List<String>> = if (remote == null) {
+                val merged: Triple<List<Note>, List<String>, Set<Long>> = if (remote == null) {
                     GoogleDriveSync.uploadState(token, current, currentCategories, currentDeletedNoteIds)
                     Triple(current, currentCategories, currentDeletedNoteIds)
                 } else {
