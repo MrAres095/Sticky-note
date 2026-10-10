@@ -1,76 +1,67 @@
 package com.mrares095.stickynote
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DriveStateMergerTest {
-    @Test
-    fun permanentDeletionTombstonePreventsRemoteResurrection() {
-        val local = listOf(Note(2L, "Local", "text", "Osobno"))
-        val remote = listOf(Note(2L, "Old cloud copy", "old text", "Osobno"))
+    private fun note(id: Long, title: String, updatedAt: Long, attachmentUri: String? = null) =
+        Note(id = id, title = title, text = "text-$title", category = "Osobno",
+            updatedAt = updatedAt, attachmentUri = attachmentUri)
 
+    @Test fun tombstonesPreventDeletedNotesFromReturning() {
         val merged = DriveStateMerger.mergeNotes(
-            localNotes = local,
-            remoteNotes = remote,
-            preferRemoteOnFirstSync = false,
-            deletedNoteIds = setOf(2L)
+            listOf(note(1, "keep", 100), note(2, "deleted", 200)),
+            listOf(note(2, "old copy", 150), note(3, "new", 300)),
+            false, setOf(2)
         )
-
-        assertTrue(merged.isEmpty())
+        assertEquals(listOf(1L, 3L), merged.map { it.id })
     }
 
-    @Test
-    fun newerLocalNoteWinsConflict() {
-        val local = Note(7L, "Local title", "local edit", "Osobno", updatedAt = 5000L)
-        val remote = Note(7L, "Cloud title", "cloud edit", "Osobno", updatedAt = 2000L)
-
-        val merged = DriveStateMerger.mergeNotes(listOf(local), listOf(remote), false, emptySet())
-
-        assertEquals(1, merged.size)
-        assertEquals("Local title", merged.single().title)
-        assertEquals("local edit", merged.single().text)
+    @Test fun newerLocalEditWinsConflict() {
+        val merged = DriveStateMerger.mergeNotes(
+            listOf(note(1, "local", 5000)), listOf(note(1, "cloud", 1000)), false, emptySet()
+        )
+        assertEquals("local", merged.single().title)
     }
 
-    @Test
-    fun cloudWinnerDoesNotLoseDeviceLocalAttachment() {
-        val local = Note(
-            8L, "Same note", "older local text", "Osobno",
-            updatedAt = 1000L,
-            attachmentUri = "content://local/document/8"
+    @Test fun remoteEditWinsUnlessLocalIsMoreThanOneSecondNewer() {
+        val merged = DriveStateMerger.mergeNotes(
+            listOf(note(1, "local", 2000)), listOf(note(1, "cloud", 1500)), false, emptySet()
         )
-        val remote = Note(8L, "Same note", "newer cloud text", "Osobno", updatedAt = 5000L)
-
-        val merged = DriveStateMerger.mergeNotes(listOf(local), listOf(remote), false, emptySet())
-
-        assertEquals("newer cloud text", merged.single().text)
-        assertEquals("content://local/document/8", merged.single().attachmentUri)
+        assertEquals("cloud", merged.single().title)
     }
 
-    @Test
-    fun firstSyncUsesCloudNotesButStillHonorsDeletionTombstones() {
-        val local = listOf(Note(1L, "Welcome", "fresh install", "Osobno"))
-        val remote = listOf(
-            Note(1L, "Welcome", "fresh install", "Osobno"),
-            Note(9L, "Cloud note", "should stay", "Osobno"),
-            Note(10L, "Deleted elsewhere", "should not return", "Osobno")
+    @Test fun localAttachmentSurvivesWhenRemoteCopyWins() {
+        val merged = DriveStateMerger.mergeNotes(
+            listOf(note(1, "local older", 1000, "content://local/file")),
+            listOf(note(1, "cloud newer", 3000)), false, emptySet()
         )
-
-        val merged = DriveStateMerger.mergeNotes(local, remote, true, setOf(10L))
-
-        assertEquals(setOf(1L, 9L), merged.map { it.id }.toSet())
-        assertFalse(merged.any { it.id == 10L })
+        assertEquals("cloud newer", merged.single().title)
+        assertEquals("content://local/file", merged.single().attachmentUri)
     }
 
-    @Test
-    fun deletedCategoriesDoNotReappearDuringMerge() {
-        val merged = DriveStateMerger.mergeCategories(
-            localCategories = listOf("Sve", "Osobno"),
-            remoteCategories = listOf("Sve", "Osobno", "Staro"),
-            deletedCategories = setOf("Staro", "Osobno")
+    @Test fun firstSyncPrefersRemoteButHonorsTombstones() {
+        val merged = DriveStateMerger.mergeNotes(
+            listOf(note(1, "welcome", 100)),
+            listOf(note(2, "cloud", 200), note(3, "deleted", 300)),
+            true, setOf(3)
         )
+        assertEquals(listOf(2L), merged.map { it.id })
+    }
 
-        assertEquals(listOf("Sve"), merged)
+    @Test fun categoryTombstonesPreventDeletedCategoriesFromReturning() {
+        assertEquals(
+            listOf("Sve", "Osobno", "Putovanja"),
+            DriveStateMerger.mergeCategories(
+                listOf("Sve", "Osobno", "Posao"), listOf("Posao", "Putovanja"), setOf("Posao")
+            )
+        )
+    }
+
+    @Test fun categoryMergeKeepsFallbackWhenAllCategoriesWereDeleted() {
+        assertEquals(
+            listOf("Sve"),
+            DriveStateMerger.mergeCategories(listOf("Posao"), listOf("Posao"), setOf("Posao"))
+        )
     }
 }
