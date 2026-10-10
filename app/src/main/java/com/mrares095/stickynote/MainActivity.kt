@@ -927,15 +927,9 @@ fun StickyNoteApp(
                         OutlinedButton(
                             onClick = {
                                 showCreateChooser = false
-                                // Switch to the To-do screen before opening the new-task dialog.
-                                // Otherwise tasks are saved successfully but remain hidden behind Notes.
-                                showTasks = true
-                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                    .edit().putBoolean("show_tasks_screen", true).apply()
-                                taskTitle = ""
-                                taskReminderAt = null
-                                taskImageUri = null
-                                showAddTask = true
+                                // A new To-do action creates a separate named list.
+                                newTodoListTitle = ""
+                                showCreateTodoList = true
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -968,6 +962,77 @@ fun StickyNoteApp(
                 },
                 confirmButton = {},
                 dismissButton = { TextButton(onClick = { showCreateChooser = false }) { Text("Odustani") } }
+            )
+        }
+
+        if (showTodoListPicker) {
+            AlertDialog(
+                onDismissRequest = { showTodoListPicker = false },
+                title = { Text("Moje To-do liste") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        todoLists.forEach { list ->
+                            OutlinedButton(
+                                onClick = {
+                                    selectedTodoListId = list.id
+                                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                                        .putString("selected_todo_list_id", list.id)
+                                        .putBoolean("show_tasks_screen", true).apply()
+                                    showTodoListPicker = false
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(list.title, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showTodoListPicker = false
+                        newTodoListTitle = ""
+                        showCreateTodoList = true
+                    }) { Text("＋ Nova lista") }
+                },
+                dismissButton = { TextButton(onClick = { showTodoListPicker = false }) { Text("Zatvori") } }
+            )
+        }
+
+        if (showCreateTodoList) {
+            AlertDialog(
+                onDismissRequest = { showCreateTodoList = false },
+                title = { Text("Nova To-do lista") },
+                text = {
+                    OutlinedTextField(
+                        value = newTodoListTitle,
+                        onValueChange = { newTodoListTitle = it },
+                        label = { Text("Naziv liste") },
+                        placeholder = { Text("Npr. Kupovina, Posao, Kuća") },
+                        singleLine = true
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val title = newTodoListTitle.trim()
+                        if (title.isNotEmpty()) {
+                            val id = "todo_" + java.util.UUID.randomUUID().toString()
+                            val list = TodoList(id, title)
+                            todoLists = todoLists + list
+                            saveTodoLists(context, todoLists)
+                            selectedTodoListId = id
+                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                                .putString("selected_todo_list_id", id)
+                                .putBoolean("show_tasks_screen", true).apply()
+                            tasks = tasks
+                            taskTitle = ""
+                            taskReminderAt = null
+                            taskImageUri = null
+                            showAddTask = true
+                        }
+                        showCreateTodoList = false
+                    }) { Text("Stvori") }
+                },
+                dismissButton = { TextButton(onClick = { showCreateTodoList = false }) { Text("Odustani") } }
             )
         }
 
