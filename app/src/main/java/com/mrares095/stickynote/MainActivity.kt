@@ -525,6 +525,7 @@ fun StickyNoteApp(
     var showRenameTaskList by remember { mutableStateOf(false) }
     var taskListTitleDraft by remember { mutableStateOf(taskListTitle) }
     var showAddTask by remember { mutableStateOf(false) }
+    var showCreateChooser by remember { mutableStateOf(false) }
     var taskTitle by remember { mutableStateOf("") }
     var taskReminderAt by remember { mutableStateOf<Long?>(null) }
     var taskReminderPermissionDenied by remember { mutableStateOf(false) }
@@ -655,19 +656,7 @@ fun StickyNoteApp(
                 )
             },
             floatingActionButton = {
-                FloatingActionButton(onClick = {
-                    if (showTasks) {
-                        taskTitle = ""
-                        taskReminderAt = null
-                        taskImageUri = null
-                        showAddTask = true
-                    } else editing = Note(
-                        System.currentTimeMillis(),
-                        "",
-                        "",
-                        if (selected == "Sve") "Osobno" else selected
-                    )
-                }) { Text("+") }
+                FloatingActionButton(onClick = { showCreateChooser = true }) { Text("+") }
             }
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
@@ -886,6 +875,51 @@ fun StickyNoteApp(
                 }
                 }
             }
+        }
+
+        if (showCreateChooser) {
+            AlertDialog(
+                onDismissRequest = { showCreateChooser = false },
+                title = { Text("Što želiš napraviti?") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                showCreateChooser = false
+                                taskTitle = ""
+                                taskReminderAt = null
+                                taskImageUri = null
+                                showAddTask = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Text("☑  Nova To-do lista")
+                                Text("Napravi popis zadataka i podsjetnika", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                showCreateChooser = false
+                                editing = Note(
+                                    System.currentTimeMillis(),
+                                    "",
+                                    "",
+                                    if (selected == "Sve") "Osobno" else selected
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Text("▤  Nova bilješka")
+                                Text("Napravi običnu bilješku, po želji sa slikom", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { showCreateChooser = false }) { Text("Odustani") } }
+            )
         }
 
         if (showRenameTaskList) {
