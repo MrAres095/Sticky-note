@@ -49,6 +49,16 @@ class DriveStateMergerTest {
         assertEquals(listOf(2L), merged.map { it.id })
     }
 
+    @Test fun firstSyncKeepsLocalOnlyNotesWhileCloudWinsConflicts() {
+        val merged = DriveStateMerger.mergeNotes(
+            listOf(note(1, "local only", 100), note(2, "local conflict", 900)),
+            listOf(note(2, "cloud conflict", 500), note(3, "cloud only", 700)),
+            true, emptySet()
+        )
+        assertEquals(mapOf(1L to "local only", 2L to "cloud conflict", 3L to "cloud only"),
+            merged.associate { it.id to it.title })
+    }
+
     @Test fun categoryTombstonesPreventDeletedCategoriesFromReturning() {
         assertEquals(
             listOf("Sve", "Osobno", "Putovanja"),
