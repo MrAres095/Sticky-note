@@ -646,7 +646,6 @@ fun StickyNoteApp(
                         
                         TextButton(onClick = onConnectDrive) { Text(if (driveConnected) "Google Drive ✓" else "Google Drive") }
                         TextButton(onClick = onSyncDrive) { Text("Sync") }
-                        TextButton(onClick = onCheckUpdate) { Text("Ažuriraj") }
                         TextButton(onClick = {
                             serverUrlDraft = NotesServerConfig.baseUrl(context)
                             serverConfigError = null
