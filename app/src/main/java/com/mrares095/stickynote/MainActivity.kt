@@ -454,6 +454,9 @@ fun StickyNoteApp(
     var confirmEmptyTrash by remember { mutableStateOf(false) }
     var confirmDeleteCategory by remember { mutableStateOf<String?>(null) }
     var showTasks by remember { mutableStateOf(false) }
+    var showServerSettings by remember { mutableStateOf(false) }
+    var serverUrlDraft by remember { mutableStateOf(NotesServerConfig.DEFAULT_BASE_URL) }
+    var serverConfigError by remember { mutableStateOf<String?>(null) }
     var tasks by remember { mutableStateOf(loadTasks(context)) }
     var showAddTask by remember { mutableStateOf(false) }
     var taskTitle by remember { mutableStateOf("") }
@@ -555,6 +558,11 @@ fun StickyNoteApp(
                         TextButton(onClick = onConnectDrive) { Text(if (driveConnected) "Google Drive ✓" else "Google Drive") }
                         TextButton(onClick = onSyncDrive) { Text("Sync") }
                         TextButton(onClick = onCheckUpdate) { Text("Ažuriraj") }
+                        TextButton(onClick = {
+                            serverUrlDraft = NotesServerConfig.baseUrl(context)
+                            serverConfigError = null
+                            showServerSettings = true
+                        }) { Text("⚙") }
                     }
                 )
             },
@@ -1096,6 +1104,55 @@ fun StickyNoteApp(
                     }) { Text("Spremi") }
                 },
                 dismissButton = { TextButton(onClick = { showRenameTab = null }) { Text("Odustani") } }
+            )
+        }
+
+        if (showServerSettings) {
+            AlertDialog(
+                onDismissRequest = { showServerSettings = false; serverConfigError = null },
+                title = { Text("Postavke servera") },
+                text = {
+                    Column {
+                        Text(
+                            "Ovdje možeš promijeniti adresu budućeg zajedničkog servera. Sinkronizacija s ovim serverom još nije uključena.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = serverUrlDraft,
+                            onValueChange = { serverUrlDraft = it; serverConfigError = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Adresa servera") },
+                            singleLine = true,
+                            placeholder = { Text("https://notes.mandocloud.uk") }
+                        )
+                        serverConfigError?.let {
+                            Spacer(Modifier.height(6.dp))
+                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        try {
+                            NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
+                            serverUrlDraft = NotesServerConfig.baseUrl(context)
+                            serverConfigError = null
+                            showServerSettings = false
+                        } catch (e: Exception) {
+                            serverConfigError = e.message ?: "Adresa servera nije valjana."
+                        }
+                    }) { Text("Spremi") }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = {
+                            serverUrlDraft = NotesServerConfig.DEFAULT_BASE_URL
+                            serverConfigError = null
+                        }) { Text("Zadano") }
+                        TextButton(onClick = { showServerSettings = false; serverConfigError = null }) { Text("Odustani") }
+                    }
+                }
             )
         }
 
