@@ -528,6 +528,33 @@ fun StickyNoteApp(
         }
     }
 
+    fun showTaskReminderPicker() {
+        val now = java.util.Calendar.getInstance()
+        DatePickerDialog(context, { _, year, month, day ->
+            val chosen = java.util.Calendar.getInstance().apply { set(year, month, day) }
+            TimePickerDialog(context, { _, hour, minute ->
+                chosen.set(java.util.Calendar.HOUR_OF_DAY, hour)
+                chosen.set(java.util.Calendar.MINUTE, minute)
+                chosen.set(java.util.Calendar.SECOND, 0)
+                chosen.set(java.util.Calendar.MILLISECOND, 0)
+                if (chosen.timeInMillis > System.currentTimeMillis()) {
+                    taskReminderAt = chosen.timeInMillis
+                    taskReminderPermissionDenied = false
+                } else {
+                    taskReminderAt = null
+                    android.widget.Toast.makeText(context, "Odaberi vrijeme u budućnosti.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
+        }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
+    }
+
+    val taskReminderPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        taskReminderPermissionDenied = !granted
+        if (granted) showTaskReminderPicker()
+    }
+
     LaunchedEffect(openNoteId, notes) {
         if (openNoteId != null && editing == null) {
             val target = notes.firstOrNull { it.id == openNoteId }
@@ -796,6 +823,7 @@ fun StickyNoteApp(
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(if (taskReminderAt == null) "Bez podsjetnika" else "Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(taskReminderAt!!)))
+                            if (taskReminderPermissionDenied) Text("Za prikaz podsjetnika dopusti obavijesti u postavkama Androida.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             TextButton(onClick = { taskImagePicker.launch(arrayOf("image/*")) }) { Text(if (taskImageUri == null) "Dodaj sliku" else "Promijeni sliku") }
                             TextButton(onClick = { taskImageUri = null }) { Text("Ukloni sliku") }
@@ -806,14 +834,11 @@ fun StickyNoteApp(
                         }
                         Row {
                             TextButton(onClick = {
-                                val now = java.util.Calendar.getInstance()
-                                DatePickerDialog(context, { _, year, month, day ->
-                                    val chosen = java.util.Calendar.getInstance().apply { set(year, month, day) }
-                                    TimePickerDialog(context, { _, hour, minute ->
-                                        chosen.set(java.util.Calendar.HOUR_OF_DAY, hour); chosen.set(java.util.Calendar.MINUTE, minute); chosen.set(java.util.Calendar.SECOND, 0); chosen.set(java.util.Calendar.MILLISECOND, 0)
-                                        taskReminderAt = chosen.timeInMillis
-                                    }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
-                                }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                                if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                    taskReminderPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    showTaskReminderPicker()
+                                }
                             }) { Text("Postavi datum i vrijeme") }
                             TextButton(onClick = { taskReminderAt = null }) { Text("Ukloni") }
                         }
