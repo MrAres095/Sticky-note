@@ -49,10 +49,41 @@ data class TodoTask(
     val title: String,
     val completed: Boolean = false,
     val reminderAt: Long? = null,
-    val imageUri: String? = null
+    val imageUri: String? = null,
+    val listId: String = "default"
 )
 
+data class TodoList(val id: String, val title: String)
+
 const val TASKS = "todo_tasks"
+private const val TODO_LISTS = "todo_lists"
+private const val DEFAULT_TODO_LIST_ID = "default"
+
+private fun loadTodoLists(context: Context): List<TodoList> {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString(TODO_LISTS, null)
+    if (raw.isNullOrBlank()) {
+        val initial = listOf(TodoList(DEFAULT_TODO_LIST_ID, "Moj prvi popis"))
+        saveTodoLists(context, initial)
+        return initial
+    }
+    return try {
+        val a = JSONArray(raw)
+        val result = List(a.length()) { i ->
+            val o = a.getJSONObject(i)
+            TodoList(o.optString("id").ifBlank { DEFAULT_TODO_LIST_ID }, o.optString("title").ifBlank { "To-do lista" })
+        }.distinctBy { it.id }
+        result.ifEmpty { listOf(TodoList(DEFAULT_TODO_LIST_ID, "Moj prvi popis")) }
+    } catch (_: Exception) {
+        listOf(TodoList(DEFAULT_TODO_LIST_ID, "Moj prvi popis"))
+    }
+}
+
+private fun saveTodoLists(context: Context, lists: List<TodoList>) {
+    val a = JSONArray()
+    lists.forEach { a.put(JSONObject().put("id", it.id).put("title", it.title)) }
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(TODO_LISTS, a.toString()).apply()
+}
 
 private fun decodeTasks(raw: String): List<TodoTask> {
     val a = JSONArray(raw)
@@ -63,7 +94,8 @@ private fun decodeTasks(raw: String): List<TodoTask> {
             o.getString("title"),
             o.optBoolean("completed", false),
             o.optLong("reminderAt").takeIf { it > 0L },
-            o.optString("imageUri").takeIf { it.isNotBlank() && it != "null" }
+            o.optString("imageUri").takeIf { it.isNotBlank() && it != "null" },
+            o.optString("listId").ifBlank { DEFAULT_TODO_LIST_ID }
         )
     }
 }
@@ -91,7 +123,7 @@ private fun loadTasks(context: Context): List<TodoTask> {
 private fun saveTasks(context: Context, tasks: List<TodoTask>) {
     val a = JSONArray()
     tasks.forEach { task -> a.put(JSONObject().apply {
-        put("id", task.id); put("title", task.title); put("completed", task.completed); put("reminderAt", task.reminderAt ?: 0L); put("imageUri", task.imageUri ?: "")
+        put("id", task.id); put("title", task.title); put("completed", task.completed); put("reminderAt", task.reminderAt ?: 0L); put("imageUri", task.imageUri ?: ""); put("listId", task.listId)
     }) }
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val current = prefs.getString(TASKS, null)
@@ -518,12 +550,19 @@ fun StickyNoteApp(
     var showServerSettings by remember { mutableStateOf(false) }
     var serverUrlDraft by remember { mutableStateOf(NotesServerConfig.DEFAULT_BASE_URL) }
     var serverConfigError by remember { mutableStateOf<String?>(null) }
-    var tasks by remember { mutableStateOf(loadTasks(context)) }
-    var taskListTitle by remember {
-        mutableStateOf(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("todo_list_title", "") ?: "")
+    var tasks by remember { mutableStateOf(loadTasks(context).map { task -> if (task.listId == DEFAULT_TODO_LIST_ID) task else task }) }
+    var todoLists by remember { mutableStateOf(loadTodoLists(context)) }
+    var selectedTodoListId by remember {
+        mutableStateOf(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("selected_todo_list_id", DEFAULT_TODO_LIST_ID) ?: DEFAULT_TODO_LIST_ID)
     }
+    var showTodoListPicker by remember { mutableStateOf(false) }
+    var showCreateTodoList by remember { mutableStateOf(false) }
+    var newTodoListTitle by remember { mutableStateOf("") }
+    var activeTodoList by remember { mutableStateOf<TodoList?>(null) }
+    val activeTasks = tasks.filter { it.listId == selectedTodoListId }
     var showRenameTaskList by remember { mutableStateOf(false) }
-    var taskListTitleDraft by remember { mutableStateOf(taskListTitle) }
+    var taskListTitleDraft by remember { mutableStateOf("") }
     var showAddTask by remember { mutableStateOf(false) }
     var showCreateChooser by remember { mutableStateOf(false) }
     var taskTitle by remember { mutableStateOf("") }
@@ -663,20 +702,18 @@ fun StickyNoteApp(
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         Column(Modifier.weight(1f)) {
                             TextButton(
-                                onClick = {
-                                    taskListTitleDraft = taskListTitle
-                                    showRenameTaskList = true
-                                },
+                                onClick = { showTodoListPicker = true },
                                 contentPadding = PaddingValues(0.dp)
                             ) {
-                                Text(taskListTitle.ifBlank { "Odaberi popis" }, style = MaterialTheme.typography.headlineSmall, color = if (taskListTitle.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                                Text(todoLists.firstOrNull { it.id == selectedTodoListId }?.title ?: "Odaberi popis", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
                             }
-                            Text("${tasks.count { !it.completed }} preostalo · ${tasks.count { it.completed }} dovršeno", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${activeTasks.count { !it.completed }} preostalo · ${activeTasks.count { it.completed }} dovršeno", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        if (tasks.any { it.completed }) {
+                        if (activeTasks.any { it.completed }) {
                             TextButton(onClick = {
-                                tasks.filter { it.completed }.forEach { cancelReminder(context, it.id) }
-                                val remaining = tasks.filterNot { it.completed }
+                                activeTasks.filter { it.completed }.forEach { cancelReminder(context, it.id) }
+                                val removedIds = activeTasks.filter { it.completed }.map { it.id }.toSet()
+                                val remaining = tasks.filterNot { it.id in removedIds }
                                 tasks = remaining
                                 saveTasks(context, remaining)
                             }) { Text("Ukloni dovršene") }
@@ -704,10 +741,10 @@ fun StickyNoteApp(
                                 }) { Text("＋ Stavka popisa") }
                             }
                         }
-                        if (tasks.isEmpty()) {
+                        if (activeTasks.isEmpty()) {
                             item { Text("Dodaj prvu stavku popisa.", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
-                        items(tasks.sortedWith(compareBy<TodoTask> { it.completed }.thenBy { it.reminderAt ?: Long.MAX_VALUE }), key = { it.id }) { task ->
+                        items(activeTasks.sortedWith(compareBy<TodoTask> { it.completed }.thenBy { it.reminderAt ?: Long.MAX_VALUE }), key = { it.id }) { task ->
                             Column(Modifier.fillMaxWidth()) {
                                 Row(
                                     Modifier.fillMaxWidth().padding(vertical = 7.dp),
@@ -1013,7 +1050,7 @@ fun StickyNoteApp(
                                 (tasks.maxOfOrNull { it.id } ?: 0L) + 1L
                             )
                             val added = titles.mapIndexed { index, title ->
-                                TodoTask(firstId + index, title, false, taskReminderAt, taskImageUri)
+                                TodoTask(firstId + index, title, false, taskReminderAt, taskImageUri, selectedTodoListId)
                             }
                             val updated = tasks + added
                             tasks = updated
