@@ -63,7 +63,8 @@ private fun loadTodoLists(context: Context): List<TodoList> {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val raw = prefs.getString(TODO_LISTS, null)
     if (raw.isNullOrBlank()) {
-        val initial = listOf(TodoList(DEFAULT_TODO_LIST_ID, "Moj prvi popis"))
+        val legacyTitle = prefs.getString("todo_list_title", null)?.trim().orEmpty()
+        val initial = listOf(TodoList(DEFAULT_TODO_LIST_ID, legacyTitle.ifBlank { "Moj prvi popis" }))
         saveTodoLists(context, initial)
         return initial
     }
@@ -83,6 +84,7 @@ private fun saveTodoLists(context: Context, lists: List<TodoList>) {
     val a = JSONArray()
     lists.forEach { a.put(JSONObject().put("id", it.id).put("title", it.title)) }
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(TODO_LISTS, a.toString()).apply()
+    NoteListWidgetProvider.updateAll(context)
 }
 
 private fun decodeTasks(raw: String): List<TodoTask> {
@@ -562,6 +564,7 @@ fun StickyNoteApp(
     var activeTodoList by remember { mutableStateOf<TodoList?>(null) }
     val activeTasks = tasks.filter { it.listId == selectedTodoListId }
     var showRenameTaskList by remember { mutableStateOf(false) }
+    var taskListTitle by remember { mutableStateOf("") }
     var taskListTitleDraft by remember { mutableStateOf("") }
     var showAddTask by remember { mutableStateOf(false) }
     var showCreateChooser by remember { mutableStateOf(false) }
