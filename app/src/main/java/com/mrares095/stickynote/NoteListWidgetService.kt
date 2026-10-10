@@ -24,11 +24,14 @@ class NoteListWidgetService : RemoteViewsService() {
             val loaded = mutableListOf<Item>()
             try {
                 if (tab == "To-do lista") {
+                    val selectedListId = prefs.getString("list_widget_todo_id_$widgetId", "default") ?: "default"
                     val rawTasks = prefs.getString(TASKS, null)
                     if (!rawTasks.isNullOrBlank()) {
                         val array = JSONArray(rawTasks)
                         for (i in 0 until array.length()) {
                             val o = array.getJSONObject(i)
+                            val listId = o.optString("listId").ifBlank { "default" }
+                            if (listId != selectedListId) continue
                             val completed = o.optBoolean("completed", false)
                             val title = o.optString("title").ifBlank { "Stavka" }
                             loaded += Item(o.optLong("id"), (if (completed) "✓  " else "□  ") + title, "", isTask = true)
