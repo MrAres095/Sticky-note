@@ -142,6 +142,7 @@ data class Note(
 const val PREFS = "sticky_note_data"
 const val NOTES = "notes"
 const val CATEGORIES = "categories"
+private const val DELETED_NOTE_IDS = "drive_deleted_note_ids"
 private const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
 private fun loadCategories(context: Context): List<String> {
@@ -155,6 +156,20 @@ private fun saveCategories(context: Context, values: List<String>) {
     val a = JSONArray()
     values.forEach { a.put(it) }
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(CATEGORIES, a.toString()).apply()
+}
+
+private fun loadDeletedNoteIds(context: Context): Set<Long> =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getStringSet(DELETED_NOTE_IDS, emptySet())
+        .orEmpty()
+        .mapNotNull { it.toLongOrNull()?.takeIf { id -> id > 0L } }
+        .toSet()
+
+private fun saveDeletedNoteIds(context: Context, ids: Set<Long>) {
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putStringSet(DELETED_NOTE_IDS, ids.filter { it > 0L }.map { it.toString() }.toSet())
+        .apply()
 }
 
 private fun loadNotes(context: Context): List<Note> {
@@ -288,23 +303,25 @@ class MainActivity : ComponentActivity() {
         showDriveMessage("Sinkronizacija s Google Driveom...")
         val current = loadNotes(this)
         val currentCategories = loadCategories(this)
+        val currentDeletedNoteIds = loadDeletedNoteIds(this)
 
         thread {
             try {
                 val remote = GoogleDriveSync.downloadState(token)
                 val merged: Pair<List<Note>, List<String>> = if (remote == null) {
-                    GoogleDriveSync.uploadState(token, current, currentCategories)
-                    current to currentCategories
+                    GoogleDriveSync.uploadState(token, current, currentCategories, currentDeletedNoteIds)
+                    Triple(current, currentCategories, currentDeletedNoteIds)
                 } else {
                     val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     val firstSync = !prefs.getBoolean("drive_sync_initialized", false)
+                    val deletedNoteIds = currentDeletedNoteIds + remote.deletedNoteIds
 
                     val localIsFreshInstall = current.size == 1 &&
                         current.first().id == 1L &&
                         current.first().title == "Dobrodošli" &&
                         current.first().text.contains("Sticky & Note")
 
-                    val notes = if (firstSync && localIsFreshInstall && remote.notes.isNotEmpty()) {
+                    val mergedNotes = if (firstSync && localIsFreshInstall && remote.notes.isNotEmpty()) {
                         remote.notes
                     } else {
                         val byId = LinkedHashMap<Long, Note>()
@@ -324,16 +341,18 @@ class MainActivity : ComponentActivity() {
                         byId.values.toList()
                     }
 
+                    val notes = mergedNotes.filterNot { it.id in deletedNoteIds }
                     val categories = (currentCategories + remote.categories)
                         .distinct()
                         .ifEmpty { listOf("Sve", "Osobno", "Recepti") }
 
-                    GoogleDriveSync.uploadState(token, notes, categories)
-                    notes to categories
+                    GoogleDriveSync.uploadState(token, notes, categories, deletedNoteIds)
+                    Triple(notes, categories, deletedNoteIds)
                 }
 
                 runOnUiThread {
                     saveNotes(this, merged.first)
+                    saveDeletedNoteIds(this, merged.third)
                     // Reconcile Android alarms after a Drive download/merge. A reminder can
                     // arrive from another device, be moved, or have been trashed remotely.
                     val reminderNow = System.currentTimeMillis()
@@ -466,11 +485,14 @@ fun StickyNoteApp(
 
     fun permanentlyDeleteNote(note: Note) {
         cancelNoteReminder(context, note.id)
+        saveDeletedNoteIds(context, loadDeletedNoteIds(context) + note.id)
         persistNotes(notes.filterNot { it.id == note.id })
     }
 
     fun emptyTrash() {
-        notes.filter { it.trashed }.forEach { cancelNoteReminder(context, it.id) }
+        val removedIds = notes.filter { it.trashed }.map { it.id }.toSet()
+        removedIds.forEach { cancelNoteReminder(context, it) }
+        saveDeletedNoteIds(context, loadDeletedNoteIds(context) + removedIds)
         persistNotes(notes.filterNot { it.trashed })
     }
 
