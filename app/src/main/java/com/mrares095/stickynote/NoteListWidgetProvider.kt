@@ -34,7 +34,12 @@ class NoteListWidgetProvider : AppWidgetProvider() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             views.setPendingIntentTemplate(R.id.widget_note_list_items, open)
-            views.setTextViewText(R.id.widget_list_title, "Sticky & Note")
+            val selectedTab = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("list_widget_tab_$widgetId", "Sve") ?: "Sve"
+            views.setTextViewText(
+                R.id.widget_list_title,
+                if (selectedTab == "To-do lista") "To-do lista" else if (selectedTab == "Sve") "Bilješke" else "Bilješke · $selectedTab"
+            )
             manager.updateAppWidget(widgetId, views)
             manager.notifyAppWidgetViewDataChanged(widgetId, R.id.widget_note_list_items)
         }
