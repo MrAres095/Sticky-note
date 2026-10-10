@@ -229,7 +229,8 @@ class MainActivity : ComponentActivity() {
                 onConnectDrive = { authorizeDrive(false) },
                 onSyncDrive = { authorizeDrive(true) },
                 onCheckUpdate = { checkForUpdate() },
-                openNoteId = pendingOpenNoteId
+                openNoteId = pendingOpenNoteId,
+                onOpenNoteHandled = { pendingOpenNoteId = null }
             )
         }
     }
@@ -370,7 +371,8 @@ fun StickyNoteApp(
     onConnectDrive: () -> Unit,
     onSyncDrive: () -> Unit,
     onCheckUpdate: () -> Unit,
-    openNoteId: Long? = null
+    openNoteId: Long? = null,
+    onOpenNoteHandled: () -> Unit = {}
 ) {
     var categories by remember { mutableStateOf(loadCategories(context)) }
     var selected by remember { mutableStateOf(categories.first()) }
@@ -408,7 +410,11 @@ fun StickyNoteApp(
 
     LaunchedEffect(openNoteId, notes) {
         if (openNoteId != null && editing == null) {
-            notes.firstOrNull { it.id == openNoteId }?.let { editing = it }
+            val target = notes.firstOrNull { it.id == openNoteId }
+            if (target != null) {
+                editing = target
+                onOpenNoteHandled()
+            }
         }
     }
 
