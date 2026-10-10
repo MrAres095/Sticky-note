@@ -514,7 +514,7 @@ fun StickyNoteApp(
     var confirmPermanentDelete by remember { mutableStateOf<Note?>(null) }
     var confirmEmptyTrash by remember { mutableStateOf(false) }
     var confirmDeleteCategory by remember { mutableStateOf<String?>(null) }
-    var showTasks by remember { mutableStateOf(false) }
+    var showTasks by remember { mutableStateOf(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("show_tasks_screen", false)) }
     var showServerSettings by remember { mutableStateOf(false) }
     var serverUrlDraft by remember { mutableStateOf(NotesServerConfig.DEFAULT_BASE_URL) }
     var serverConfigError by remember { mutableStateOf<String?>(null) }
@@ -888,6 +888,8 @@ fun StickyNoteApp(
                                 // Switch to the To-do screen before opening the new-task dialog.
                                 // Otherwise tasks are saved successfully but remain hidden behind Notes.
                                 showTasks = true
+                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                    .edit().putBoolean("show_tasks_screen", true).apply()
                                 taskTitle = ""
                                 taskReminderAt = null
                                 taskImageUri = null
@@ -903,6 +905,9 @@ fun StickyNoteApp(
                         OutlinedButton(
                             onClick = {
                                 showCreateChooser = false
+                                showTasks = false
+                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                    .edit().putBoolean("show_tasks_screen", false).apply()
                                 editing = Note(
                                     System.currentTimeMillis(),
                                     "",
