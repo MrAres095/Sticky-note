@@ -925,7 +925,7 @@ fun StickyNoteApp(
                     modifier = Modifier.fillMaxSize(),
                     color = Color(0xFF17191D)
                 ) {
-                    Column(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
@@ -1049,15 +1049,65 @@ fun StickyNoteApp(
                                 }
                             }
                             Spacer(Modifier.height(4.dp))
+                            var colorMenuExpanded by remember(note.id) { mutableStateOf(false) }
+                            val noteColors = listOf(
+                                0xFF353535L to "Ugljen siva",
+                                0xFF8B453AL to "Terakota",
+                                0xFF8B641FL to "Zlatno smeđa",
+                                0xFF567B38L to "Maslinasto zelena",
+                                0xFF276A75L to "Petrolej",
+                                0xFF315B91L to "Plava",
+                                0xFF65439AL to "Ljubičasta",
+                                0xFF93456CL to "Roza",
+                                0xFF7D573CL to "Smeđa",
+                                0xFF5E6D36L to "Maslinasta",
+                                0xFF355E4BL to "Šumsko zelena",
+                                0xFF5B526FL to "Sivo ljubičasta"
+                            )
                             Text("Boja bilješke", style = MaterialTheme.typography.labelLarge)
-                            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(listOf(0xFF353535L, 0xFF8B453AL, 0xFF8B641FL, 0xFF567B38L, 0xFF276A75L, 0xFF315B91L, 0xFF65439AL, 0xFF93456CL, 0xFF7D573CL, 0xFF5E6D36L, 0xFF355E4BL, 0xFF5B526FL)) { color ->
+                            Box {
+                                OutlinedButton(
+                                    onClick = { colorMenuExpanded = true },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                     Surface(
-                                        modifier = Modifier.size(36.dp).clickable { noteColor = color },
+                                        modifier = Modifier.size(22.dp),
                                         shape = androidx.compose.foundation.shape.CircleShape,
-                                        color = Color(color),
-                                        border = if (noteColor == color) androidx.compose.foundation.BorderStroke(2.dp, Color.White) else null
+                                        color = Color(noteColor),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.65f))
                                     ) {}
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(noteColors.firstOrNull { it.first == noteColor }?.second ?: "Odaberi boju")
+                                    Spacer(Modifier.weight(1f))
+                                    Text("▾")
+                                }
+                                DropdownMenu(
+                                    expanded = colorMenuExpanded,
+                                    onDismissRequest = { colorMenuExpanded = false },
+                                    modifier = Modifier.fillMaxWidth(0.88f)
+                                ) {
+                                    noteColors.forEach { (color, label) ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                                    Surface(
+                                                        modifier = Modifier.size(26.dp),
+                                                        shape = androidx.compose.foundation.shape.CircleShape,
+                                                        color = Color(color),
+                                                        border = if (noteColor == color) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                                                    ) {}
+                                                    Spacer(Modifier.width(12.dp))
+                                                    Text(label)
+                                                    Spacer(Modifier.weight(1f))
+                                                    if (noteColor == color) Text("✓", color = MaterialTheme.colorScheme.primary)
+                                                }
+                                            },
+                                            onClick = {
+                                                noteColor = color
+                                                colorMenuExpanded = false
+                                            }
+                                        )
+                                    }
                                 }
                             }
                             Spacer(Modifier.height(8.dp))
