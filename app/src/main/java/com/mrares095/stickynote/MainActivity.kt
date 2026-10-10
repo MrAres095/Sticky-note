@@ -135,7 +135,8 @@ data class Note(
     val keepId: String? = null,
     val updatedAt: Long = System.currentTimeMillis(),
     val trashed: Boolean = false,
-    val reminderAt: Long? = null
+    val reminderAt: Long? = null,
+    val attachmentUri: String? = null
 )
 
 const val PREFS = "sticky_note_data"
@@ -173,7 +174,8 @@ private fun loadNotes(context: Context): List<Note> {
             o.optString("keepId").takeIf { value -> value.isNotBlank() },
             o.optLong("updatedAt", System.currentTimeMillis()),
             o.optBoolean("trashed", o.optString("category") == "🗑 Otpad"),
-            o.optLong("reminderAt").takeIf { it > 0L }
+            o.optLong("reminderAt").takeIf { it > 0L },
+            o.optString("attachmentUri").takeIf { it.isNotBlank() && it != "null" }
         )
     }
 }
@@ -193,6 +195,7 @@ private fun saveNotes(context: Context, values: List<Note>) {
             put("updatedAt", n.updatedAt)
             put("trashed", n.trashed)
             put("reminderAt", n.reminderAt ?: 0L)
+            put("attachmentUri", n.attachmentUri ?: "")
         })
     }
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(NOTES, a.toString()).apply()
@@ -520,9 +523,19 @@ fun StickyNoteApp(
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
                 if (showTasks) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("To-do lista", style = MaterialTheme.typography.titleLarge)
-                        Text("${tasks.count { !it.completed }} preostalo")
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column(Modifier.weight(1f)) {
+                            Text("To-do lista", style = MaterialTheme.typography.titleLarge)
+                            Text("${tasks.count { !it.completed }} preostalo · ${tasks.count { it.completed }} dovršeno", style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (tasks.any { it.completed }) {
+                            TextButton(onClick = {
+                                tasks.filter { it.completed }.forEach { cancelReminder(context, it.id) }
+                                val remaining = tasks.filterNot { it.completed }
+                                tasks = remaining
+                                saveTasks(context, remaining)
+                            }) { Text("Ukloni dovršene") }
+                        }
                     }
                     if (tasks.isEmpty()) Text("Još nema zadataka. Dodaj prvi pomoću +.", Modifier.padding(16.dp))
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
@@ -722,6 +735,13 @@ fun StickyNoteApp(
             var cat by remember(note.id) { mutableStateOf(if (note.category == "") "Osobno" else note.category) }
             var noteColor by remember(note.id) { mutableLongStateOf(note.color) }
             var noteReminderAt by remember(note.id) { mutableStateOf(note.reminderAt) }
+            var noteAttachmentUri by remember(note.id) { mutableStateOf(note.attachmentUri) }
+            val noteAttachmentPicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) {
+                    try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
+                    noteAttachmentUri = uri.toString()
+                }
+            }
             var noteReminderPermissionDenied by remember(note.id) { mutableStateOf(false) }
             var pendingNoteReminderPicker by remember(note.id) { mutableStateOf(false) }
 
@@ -767,7 +787,7 @@ fun StickyNoteApp(
                                 style = MaterialTheme.typography.titleLarge
                             )
                             TextButton(onClick = {
-                                if (title.isNotBlank() || body.isNotBlank()) {
+                                if (title.isNotBlank() || body.isNotBlank() || noteAttachmentUri != null) {
                                     val saved = note.copy(
                                         title = title,
                                         text = body,
@@ -775,6 +795,7 @@ fun StickyNoteApp(
                                         color = noteColor,
                                         trashed = false,
                                         reminderAt = noteReminderAt,
+                                        attachmentUri = noteAttachmentUri,
                                         updatedAt = System.currentTimeMillis()
                                     )
                                     persistNotes((notes.filterNot { it.id == note.id }) + saved)
@@ -888,6 +909,39 @@ fun StickyNoteApp(
                                         border = if (noteColor == color) androidx.compose.foundation.BorderStroke(2.dp, Color.White) else null
                                     ) {}
                                 }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Divider(color = Color(0xFF343A45))
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Privitak", style = MaterialTheme.typography.labelLarge)
+                                    Text(
+                                        noteAttachmentUri?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "Nema privitka",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFFADB4C0),
+                                        maxLines = 1
+                                    )
+                                }
+                                TextButton(onClick = { noteAttachmentPicker.launch(arrayOf("*/*")) }) {
+                                    Text(if (noteAttachmentUri == null) "＋ Dodaj" else "Promijeni")
+                                }
+                                if (noteAttachmentUri != null) TextButton(onClick = { noteAttachmentUri = null }) { Text("Ukloni") }
+                            }
+                            noteAttachmentUri?.let { uri ->
+                                val attachmentPreview = remember(uri) { loadTaskThumbnail(context, uri) }
+                                if (attachmentPreview != null) {
+                                    Image(
+                                        bitmap = attachmentPreview.asImageBitmap(),
+                                        contentDescription = "Pregled privitka bilješke",
+                                        modifier = Modifier.fillMaxWidth().heightIn(max = 150.dp),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
+                                Text(
+                                    "Privitak je spremljen na ovom uređaju; prijenos privitaka na Google Drive i druge uređaje još nije aktiviran.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFADB4C0)
+                                )
                             }
                             Spacer(Modifier.height(8.dp))
                         }
