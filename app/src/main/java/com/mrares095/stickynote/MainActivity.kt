@@ -679,8 +679,13 @@ fun StickyNoteApp(
                     TextButton(onClick = {
                         val titles = taskTitle.lines().map { it.trim() }.filter { it.isNotEmpty() }
                         if (titles.isNotEmpty()) {
+                            // Keep IDs unique even when adding many rows quickly or after restoring older tasks.
+                            val firstId = maxOf(
+                                System.currentTimeMillis(),
+                                (tasks.maxOfOrNull { it.id } ?: 0L) + 1L
+                            )
                             val added = titles.mapIndexed { index, title ->
-                                TodoTask(System.currentTimeMillis() + index, title, false, taskReminderAt, taskImageUri)
+                                TodoTask(firstId + index, title, false, taskReminderAt, taskImageUri)
                             }
                             val updated = tasks + added
                             tasks = updated
