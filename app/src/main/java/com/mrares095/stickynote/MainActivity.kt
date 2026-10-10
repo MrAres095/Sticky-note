@@ -681,6 +681,11 @@ fun StickyNoteApp(
                                 saveTasks(context, remaining)
                             }) { Text("Ukloni dovršene") }
                         }
+                        TextButton(onClick = {
+                            showTasks = false
+                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                .edit().putBoolean("show_tasks_screen", false).apply()
+                        }) { Text("✕ Bilješke") }
                     }
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
                         item {
