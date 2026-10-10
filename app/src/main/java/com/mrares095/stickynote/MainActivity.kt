@@ -22,6 +22,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
@@ -33,6 +35,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
@@ -51,15 +54,38 @@ data class TodoTask(
 
 const val TASKS = "todo_tasks"
 
+private fun decodeTasks(raw: String): List<TodoTask> {
+    val a = JSONArray(raw)
+    return List(a.length()) { i ->
+        val o = a.getJSONObject(i)
+        TodoTask(
+            o.getLong("id"),
+            o.getString("title"),
+            o.optBoolean("completed", false),
+            o.optLong("reminderAt").takeIf { it > 0L },
+            o.optString("imageUri").takeIf { it.isNotBlank() && it != "null" }
+        )
+    }
+}
+
 private fun loadTasks(context: Context): List<TodoTask> {
-    val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(TASKS, null) ?: return emptyList()
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString(TASKS, null) ?: return emptyList()
     return try {
-        val a = JSONArray(raw)
-        List(a.length()) { i ->
-            val o = a.getJSONObject(i)
-            TodoTask(o.getLong("id"), o.getString("title"), o.optBoolean("completed", false), o.optLong("reminderAt").takeIf { it > 0L }, o.optString("imageUri").takeIf { it.isNotBlank() && it != "null" })
+        decodeTasks(raw)
+    } catch (_: Exception) {
+        val backup = prefs.getString("${TASKS}_backup", null)
+        prefs.edit().putString("${TASKS}_corrupt_backup", raw).apply()
+        if (backup != null) {
+            try {
+                decodeTasks(backup).also { prefs.edit().putString(TASKS, backup).apply() }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
         }
-    } catch (_: Exception) { emptyList() }
+    }
 }
 
 private fun saveTasks(context: Context, tasks: List<TodoTask>) {
@@ -67,7 +93,12 @@ private fun saveTasks(context: Context, tasks: List<TodoTask>) {
     tasks.forEach { task -> a.put(JSONObject().apply {
         put("id", task.id); put("title", task.title); put("completed", task.completed); put("reminderAt", task.reminderAt ?: 0L); put("imageUri", task.imageUri ?: "")
     }) }
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(TASKS, a.toString()).apply()
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val current = prefs.getString(TASKS, null)
+    val edit = prefs.edit()
+    if (current != null) edit.putString("${TASKS}_backup", current)
+    edit.putString(TASKS, a.toString()).apply()
+    NoteListWidgetProvider.updateAll(context)
 }
 
 private fun loadTaskThumbnail(context: Context, uriString: String): Bitmap? {
@@ -97,6 +128,30 @@ private fun cancelReminder(context: Context, taskId: Long) {
     if (pending != null) (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(pending)
 }
 
+private fun cancelNoteReminder(context: Context, noteId: Long) {
+    val intent = Intent(context, ReminderReceiver::class.java).putExtra("note_id", noteId)
+    val pending = PendingIntent.getBroadcast(
+        context, noteId.hashCode() xor 0x4E4F5445, intent,
+        PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+    )
+    if (pending != null) (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(pending)
+}
+
+private fun scheduleNoteReminder(context: Context, note: Note) {
+    val at = note.reminderAt ?: return
+    if (at <= System.currentTimeMillis()) return
+    val intent = Intent(context, ReminderReceiver::class.java)
+        .putExtra("note_id", note.id)
+        .putExtra("note_title", note.title.ifBlank { "Bez naslova" })
+    val pending = PendingIntent.getBroadcast(
+        context, note.id.hashCode() xor 0x4E4F5445, intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+    val alarms = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
+}
+
+
 data class Note(
     val id: Long,
     val title: String,
@@ -107,30 +162,89 @@ data class Note(
     val pinned: Boolean = false,
     val keepId: String? = null,
     val updatedAt: Long = System.currentTimeMillis(),
-    val trashed: Boolean = false
+    val trashed: Boolean = false,
+    val reminderAt: Long? = null,
+    val attachmentUri: String? = null
+)
+
+data class MergedDriveState(
+    val notes: List<Note>,
+    val categories: List<String>,
+    val deletedNoteIds: Set<Long>,
+    val deletedCategories: Set<String>
 )
 
 const val PREFS = "sticky_note_data"
 const val NOTES = "notes"
 const val CATEGORIES = "categories"
+private const val DELETED_NOTE_IDS = "drive_deleted_note_ids"
+private const val DELETED_CATEGORIES = "drive_deleted_categories"
 private const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
-private fun loadCategories(context: Context): List<String> {
-    val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(CATEGORIES, null)
-        ?: return listOf("Sve", "Osobno", "Recepti")
+private fun decodeCategories(raw: String): List<String> {
     val a = JSONArray(raw)
-    return List(a.length()) { a.getString(it) }
+    return List(a.length()) { a.getString(it) }.ifEmpty { listOf("Sve") }
+}
+
+private fun loadCategories(context: Context): List<String> {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString(CATEGORIES, null) ?: return listOf("Sve", "Osobno", "Recepti")
+    return try {
+        decodeCategories(raw)
+    } catch (_: Exception) {
+        val backup = prefs.getString("${CATEGORIES}_backup", null)
+        prefs.edit().putString("${CATEGORIES}_corrupt_backup", raw).apply()
+        if (backup != null) {
+            try {
+                decodeCategories(backup).also { prefs.edit().putString(CATEGORIES, backup).apply() }
+            } catch (_: Exception) {
+                listOf("Sve", "Osobno", "Recepti")
+            }
+        } else {
+            listOf("Sve", "Osobno", "Recepti")
+        }
+    }
 }
 
 private fun saveCategories(context: Context, values: List<String>) {
     val a = JSONArray()
     values.forEach { a.put(it) }
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(CATEGORIES, a.toString()).apply()
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val current = prefs.getString(CATEGORIES, null)
+    val edit = prefs.edit()
+    if (current != null) edit.putString("${CATEGORIES}_backup", current)
+    edit.putString(CATEGORIES, a.toString()).apply()
 }
 
-private fun loadNotes(context: Context): List<Note> {
-    val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(NOTES, null)
-        ?: return listOf(Note(1L, "Dobrodošli", "Ovo je tvoja nova Sticky & Note bilješka.", "Osobno"))
+private fun loadDeletedNoteIds(context: Context): Set<Long> =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getStringSet(DELETED_NOTE_IDS, emptySet())
+        .orEmpty()
+        .mapNotNull { it.toLongOrNull()?.takeIf { id -> id > 0L } }
+        .toSet()
+
+private fun saveDeletedNoteIds(context: Context, ids: Set<Long>) {
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putStringSet(DELETED_NOTE_IDS, ids.filter { it > 0L }.map { it.toString() }.toSet())
+        .apply()
+}
+
+private fun loadDeletedCategories(context: Context): Set<String> =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getStringSet(DELETED_CATEGORIES, emptySet())
+        .orEmpty()
+        .filter { it.isNotBlank() && it != "Sve" }
+        .toSet()
+
+private fun saveDeletedCategories(context: Context, values: Set<String>) {
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putStringSet(DELETED_CATEGORIES, values.filter { it.isNotBlank() && it != "Sve" }.toSet())
+        .apply()
+}
+
+private fun decodeNotes(raw: String): List<Note> {
     val a = JSONArray(raw)
     return List(a.length()) {
         val o = a.getJSONObject(it)
@@ -144,8 +258,31 @@ private fun loadNotes(context: Context): List<Note> {
             o.optBoolean("pinned", false),
             o.optString("keepId").takeIf { value -> value.isNotBlank() },
             o.optLong("updatedAt", System.currentTimeMillis()),
-            o.optBoolean("trashed", o.optString("category") == "🗑 Otpad")
+            o.optBoolean("trashed", o.optString("category") == "🗑 Otpad"),
+            o.optLong("reminderAt").takeIf { it > 0L },
+            o.optString("attachmentUri").takeIf { it.isNotBlank() && it != "null" }
         )
+    }
+}
+
+private fun loadNotes(context: Context): List<Note> {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString(NOTES, null)
+        ?: return listOf(Note(1L, "Dobrodošli", "Ovo je tvoja nova Sticky & Note bilješka.", "Osobno"))
+    return try {
+        decodeNotes(raw)
+    } catch (_: Exception) {
+        val backup = prefs.getString("${NOTES}_backup", null)
+        prefs.edit().putString("${NOTES}_corrupt_backup", raw).apply()
+        if (backup != null) {
+            try {
+                decodeNotes(backup).also { prefs.edit().putString(NOTES, backup).apply() }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
     }
 }
 
@@ -163,12 +300,21 @@ private fun saveNotes(context: Context, values: List<Note>) {
             put("keepId", n.keepId ?: "")
             put("updatedAt", n.updatedAt)
             put("trashed", n.trashed)
+            put("reminderAt", n.reminderAt ?: 0L)
+            put("attachmentUri", n.attachmentUri ?: "")
         })
     }
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(NOTES, a.toString()).apply()
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val current = prefs.getString(NOTES, null)
+    val edit = prefs.edit()
+    if (current != null) edit.putString("${NOTES}_backup", current)
+    edit.putString(NOTES, a.toString()).apply()
+    NoteWidgetProvider.updateAll(context)
+    NoteListWidgetProvider.updateAll(context)
 }
 
 class MainActivity : ComponentActivity() {
+    private var pendingOpenNoteId: Long? by mutableStateOf(null)
     private var driveAccessToken: String? by mutableStateOf(null)
     private var driveStatusMessage by mutableStateOf<String?>(null)
     private var syncAfterAuthorization = false
@@ -190,6 +336,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingOpenNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
         setContent {
             StickyNoteApp(
                 context = this,
@@ -199,9 +346,16 @@ class MainActivity : ComponentActivity() {
                 onConnectDrive = { authorizeDrive(false) },
                 onSyncDrive = { authorizeDrive(true) },
                 onCheckUpdate = { checkForUpdate() },
-                openNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
+                openNoteId = pendingOpenNoteId,
+                onOpenNoteHandled = { pendingOpenNoteId = null }
             )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingOpenNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
     }
 
     private fun authorizeDrive(syncAfter: Boolean) {
@@ -246,55 +400,63 @@ class MainActivity : ComponentActivity() {
         showDriveMessage("Sinkronizacija s Google Driveom...")
         val current = loadNotes(this)
         val currentCategories = loadCategories(this)
+        val currentDeletedNoteIds = loadDeletedNoteIds(this)
+        val currentDeletedCategories = loadDeletedCategories(this)
 
         thread {
             try {
                 val remote = GoogleDriveSync.downloadState(token)
-                val merged: Pair<List<Note>, List<String>> = if (remote == null) {
-                    GoogleDriveSync.uploadState(token, current, currentCategories)
-                    current to currentCategories
+                val merged: MergedDriveState = if (remote == null) {
+                    GoogleDriveSync.uploadState(token, current, currentCategories, currentDeletedNoteIds, currentDeletedCategories)
+                    MergedDriveState(current, currentCategories, currentDeletedNoteIds, currentDeletedCategories)
                 } else {
                     val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     val firstSync = !prefs.getBoolean("drive_sync_initialized", false)
+                    val deletedNoteIds = currentDeletedNoteIds + remote.deletedNoteIds
+                    val deletedCategories = currentDeletedCategories + remote.deletedCategories
 
                     val localIsFreshInstall = current.size == 1 &&
                         current.first().id == 1L &&
                         current.first().title == "Dobrodošli" &&
                         current.first().text.contains("Sticky & Note")
 
-                    val notes = if (firstSync && localIsFreshInstall && remote.notes.isNotEmpty()) {
-                        remote.notes
-                    } else {
-                        val byId = LinkedHashMap<Long, Note>()
-                        remote.notes.forEach { byId[it.id] = it }
-                        current.forEach { local ->
-                            val cloud = byId[local.id]
-                            when {
-                                cloud == null -> byId[local.id] = local
-                                local.updatedAt > cloud.updatedAt + 1000L -> byId[local.id] = local
-                                else -> byId[local.id] = cloud
-                            }
-                        }
-                        byId.values.toList()
-                    }
+                    val notes = DriveStateMerger.mergeNotes(
+                        localNotes = current,
+                        remoteNotes = remote.notes,
+                        preferRemoteOnFirstSync = firstSync && localIsFreshInstall,
+                        deletedNoteIds = deletedNoteIds
+                    )
+                    val categories = DriveStateMerger.mergeCategories(
+                        localCategories = currentCategories,
+                        remoteCategories = remote.categories,
+                        deletedCategories = deletedCategories
+                    )
 
-                    val categories = (currentCategories + remote.categories)
-                        .distinct()
-                        .ifEmpty { listOf("Sve", "Osobno", "Recepti") }
-
-                    GoogleDriveSync.uploadState(token, notes, categories)
-                    notes to categories
+                    GoogleDriveSync.uploadState(token, notes, categories, deletedNoteIds, deletedCategories)
+                    MergedDriveState(notes, categories, deletedNoteIds, deletedCategories)
                 }
 
                 runOnUiThread {
-                    saveNotes(this, merged.first)
-                    saveCategories(this, merged.second)
+                    saveNotes(this, merged.notes)
+                    saveDeletedNoteIds(this, merged.deletedNoteIds)
+                    saveDeletedCategories(this, merged.deletedCategories)
+                    // Reconcile Android alarms after a Drive download/merge. A reminder can
+                    // arrive from another device, be moved, or have been trashed remotely.
+                    val reminderNow = System.currentTimeMillis()
+                    merged.notes.forEach { note ->
+                        if (!note.trashed && note.reminderAt != null && note.reminderAt > reminderNow) {
+                            scheduleNoteReminder(this, note)
+                        } else {
+                            cancelNoteReminder(this, note.id)
+                        }
+                    }
+                    saveCategories(this, merged.categories)
                     getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                         .edit()
                         .putBoolean("drive_sync_initialized", true)
                         .apply()
                     NoteWidgetProvider.updateAll(this)
-                    showDriveMessage("Google Drive sinkronizacija završena. " + merged.first.size + " bilješki.")
+                    showDriveMessage("Google Drive sinkronizacija završena. " + merged.notes.size + " bilješki.")
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -334,7 +496,8 @@ fun StickyNoteApp(
     onConnectDrive: () -> Unit,
     onSyncDrive: () -> Unit,
     onCheckUpdate: () -> Unit,
-    openNoteId: Long? = null
+    openNoteId: Long? = null,
+    onOpenNoteHandled: () -> Unit = {}
 ) {
     var categories by remember { mutableStateOf(loadCategories(context)) }
     var selected by remember { mutableStateOf(categories.first()) }
@@ -351,11 +514,21 @@ fun StickyNoteApp(
     var confirmPermanentDelete by remember { mutableStateOf<Note?>(null) }
     var confirmEmptyTrash by remember { mutableStateOf(false) }
     var confirmDeleteCategory by remember { mutableStateOf<String?>(null) }
-    var showTasks by remember { mutableStateOf(false) }
+    var showTasks by remember { mutableStateOf(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("show_tasks_screen", false)) }
+    var showServerSettings by remember { mutableStateOf(false) }
+    var serverUrlDraft by remember { mutableStateOf(NotesServerConfig.DEFAULT_BASE_URL) }
+    var serverConfigError by remember { mutableStateOf<String?>(null) }
     var tasks by remember { mutableStateOf(loadTasks(context)) }
+    var taskListTitle by remember {
+        mutableStateOf(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("todo_list_title", "") ?: "")
+    }
+    var showRenameTaskList by remember { mutableStateOf(false) }
+    var taskListTitleDraft by remember { mutableStateOf(taskListTitle) }
     var showAddTask by remember { mutableStateOf(false) }
+    var showCreateChooser by remember { mutableStateOf(false) }
     var taskTitle by remember { mutableStateOf("") }
     var taskReminderAt by remember { mutableStateOf<Long?>(null) }
+    var taskReminderPermissionDenied by remember { mutableStateOf(false) }
     var taskImageUri by remember { mutableStateOf<String?>(null) }
     val taskImagePicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -364,15 +537,40 @@ fun StickyNoteApp(
         }
     }
 
-    LaunchedEffect(showTasks) {
-        if (showTasks && Build.VERSION.SDK_INT >= 33 && context is ComponentActivity && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            context.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
-        }
+    fun showTaskReminderPicker() {
+        val now = java.util.Calendar.getInstance()
+        DatePickerDialog(context, { _, year, month, day ->
+            val chosen = java.util.Calendar.getInstance().apply { set(year, month, day) }
+            TimePickerDialog(context, { _, hour, minute ->
+                chosen.set(java.util.Calendar.HOUR_OF_DAY, hour)
+                chosen.set(java.util.Calendar.MINUTE, minute)
+                chosen.set(java.util.Calendar.SECOND, 0)
+                chosen.set(java.util.Calendar.MILLISECOND, 0)
+                if (chosen.timeInMillis > System.currentTimeMillis()) {
+                    taskReminderAt = chosen.timeInMillis
+                    taskReminderPermissionDenied = false
+                } else {
+                    taskReminderAt = null
+                    android.widget.Toast.makeText(context, "Odaberi vrijeme u budućnosti.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
+        }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
+    }
+
+    val taskReminderPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        taskReminderPermissionDenied = !granted
+        if (granted) showTaskReminderPicker()
     }
 
     LaunchedEffect(openNoteId, notes) {
         if (openNoteId != null && editing == null) {
-            notes.firstOrNull { it.id == openNoteId }?.let { editing = it }
+            val target = notes.firstOrNull { it.id == openNoteId }
+            if (target != null) {
+                editing = target
+                onOpenNoteHandled()
+            }
         }
     }
 
@@ -383,26 +581,36 @@ fun StickyNoteApp(
     }
 
     fun deleteNote(note: Note) {
+        cancelNoteReminder(context, note.id)
         val now = System.currentTimeMillis()
         persistNotes(notes.map { if (it.id == note.id) it.copy(trashed = true, updatedAt = now) else it })
     }
 
     fun restoreNote(note: Note) {
         val now = System.currentTimeMillis()
-        persistNotes(notes.map {
+        val restored = notes.map {
             if (it.id == note.id) it.copy(
                 category = if (it.category == "🗑 Otpad" || it.category == "Sve") "Osobno" else it.category,
                 trashed = false,
                 updatedAt = now
             ) else it
-        })
+        }
+        persistNotes(restored)
+        restored.firstOrNull { it.id == note.id }?.let { restoredNote ->
+            restoredNote.reminderAt?.let { scheduleNoteReminder(context, restoredNote) }
+        }
     }
 
     fun permanentlyDeleteNote(note: Note) {
+        cancelNoteReminder(context, note.id)
+        saveDeletedNoteIds(context, loadDeletedNoteIds(context) + note.id)
         persistNotes(notes.filterNot { it.id == note.id })
     }
 
     fun emptyTrash() {
+        val removedIds = notes.filter { it.trashed }.map { it.id }.toSet()
+        removedIds.forEach { cancelNoteReminder(context, it) }
+        saveDeletedNoteIds(context, loadDeletedNoteIds(context) + removedIds)
         persistNotes(notes.filterNot { it.trashed })
     }
 
@@ -414,6 +622,7 @@ fun StickyNoteApp(
 
     fun deleteCategory(category: String) {
         if (category == "Sve") return
+        saveDeletedCategories(context, loadDeletedCategories(context) + category)
         val fallback = categories.firstOrNull { it != "Sve" && it != category } ?: "Osobno"
         val nextCategories = if (fallback == "Osobno" && !categories.contains("Osobno")) {
             categories.filterNot { it == category } + "Osobno"
@@ -434,59 +643,129 @@ fun StickyNoteApp(
                 TopAppBar(
                     title = { Text("Sticky & Note") },
                     actions = {
-                        TextButton(onClick = { showTasks = !showTasks }) { Text(if (showTasks) "Bilješke" else "To-do / podsjetnici") }
+                        
                         TextButton(onClick = onConnectDrive) { Text(if (driveConnected) "Google Drive ✓" else "Google Drive") }
                         TextButton(onClick = onSyncDrive) { Text("Sync") }
-                        TextButton(onClick = onCheckUpdate) { Text("Ažuriraj") }
+                        TextButton(onClick = {
+                            serverUrlDraft = NotesServerConfig.baseUrl(context)
+                            serverConfigError = null
+                            showServerSettings = true
+                        }) { Text("⚙") }
                     }
                 )
             },
             floatingActionButton = {
-                FloatingActionButton(onClick = {
-                    if (showTasks) {
-                        taskTitle = ""
-                        taskReminderAt = null
-                        taskImageUri = null
-                        showAddTask = true
-                    } else editing = Note(
-                        System.currentTimeMillis(),
-                        "",
-                        "",
-                        if (selected == "Sve") "Osobno" else selected
-                    )
-                }) { Text("+") }
+                FloatingActionButton(onClick = { showCreateChooser = true }) { Text("+") }
             }
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
                 if (showTasks) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("To-do lista", style = MaterialTheme.typography.titleLarge)
-                        Text("${tasks.count { !it.completed }} preostalo")
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column(Modifier.weight(1f)) {
+                            TextButton(
+                                onClick = {
+                                    taskListTitleDraft = taskListTitle
+                                    showRenameTaskList = true
+                                },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(taskListTitle.ifBlank { "Odaberi popis" }, style = MaterialTheme.typography.headlineSmall, color = if (taskListTitle.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                            }
+                            Text("${tasks.count { !it.completed }} preostalo · ${tasks.count { it.completed }} dovršeno", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (tasks.any { it.completed }) {
+                            TextButton(onClick = {
+                                tasks.filter { it.completed }.forEach { cancelReminder(context, it.id) }
+                                val remaining = tasks.filterNot { it.completed }
+                                tasks = remaining
+                                saveTasks(context, remaining)
+                            }) { Text("Ukloni dovršene") }
+                        }
                     }
-                    if (tasks.isEmpty()) Text("Još nema zadataka. Dodaj prvi pomoću +.", Modifier.padding(16.dp))
-                    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+                    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
+                        item {
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                Text("Stavke popisa", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick = {
+                                    taskTitle = ""
+                                    taskReminderAt = null
+                                    taskImageUri = null
+                                    showAddTask = true
+                                }) { Text("＋ Stavka popisa") }
+                            }
+                        }
+                        if (tasks.isEmpty()) {
+                            item { Text("Dodaj prvu stavku popisa.", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        }
                         items(tasks.sortedWith(compareBy<TodoTask> { it.completed }.thenBy { it.reminderAt ?: Long.MAX_VALUE }), key = { it.id }) { task ->
-                            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    Text("⠿", modifier = Modifier.padding(end = 10.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleLarge)
                                     Checkbox(checked = task.completed, onCheckedChange = { checked ->
                                         val updated = tasks.map { if (it.id == task.id) it.copy(completed = checked) else it }
-                                        tasks = updated; saveTasks(context, updated)
+                                        tasks = updated
+                                        saveTasks(context, updated)
                                         if (checked) cancelReminder(context, task.id) else task.reminderAt?.let { scheduleReminder(context, task) }
                                     })
-                                    Column(Modifier.weight(1f)) {
-                                        Text(task.title, style = MaterialTheme.typography.bodyLarge, color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
-                                        task.reminderAt?.let { at -> Text("Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)), style = MaterialTheme.typography.bodySmall) }
+                                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                                        Text(
+                                            task.title,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        task.reminderAt?.let { at ->
+                                            Text("◷ " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                        }
                                         task.imageUri?.let { uri ->
                                             val thumbnail = remember(uri) { loadTaskThumbnail(context, uri) }
-                                            if (thumbnail != null) Image(bitmap = thumbnail.asImageBitmap(), contentDescription = "Slika zadatka", modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit)
+                                            if (thumbnail != null) {
+                                                Image(
+                                                    bitmap = thumbnail.asImageBitmap(),
+                                                    contentDescription = "Slika zadatka",
+                                                    modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(top = 8.dp),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            }
                                         }
                                     }
                                     TextButton(onClick = {
                                         cancelReminder(context, task.id)
-                                        val updated = tasks.filterNot { it.id == task.id }; tasks = updated; saveTasks(context, updated)
-                                    }) { Text("Obriši") }
+                                        val updated = tasks.filterNot { it.id == task.id }
+                                        tasks = updated
+                                        saveTasks(context, updated)
+                                    }) { Text("⋮") }
                                 }
+                                Divider(color = Color(0xFF343A45), thickness = 1.dp)
                             }
+                        }
+                        item {
+                            TextButton(
+                                onClick = {
+                                    taskTitle = ""
+                                    taskReminderAt = null
+                                    taskImageUri = null
+                                    showAddTask = true
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                            ) {
+                                Text("＋    Stavka popisa", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Surface(
+                                modifier = Modifier.padding(top = 12.dp),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                color = Color(0xFF34333A)
+                            ) {
+                                Text("Stvari", modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp), color = MaterialTheme.colorScheme.onSurface)
+                            }
+                            Spacer(Modifier.height(80.dp))
                         }
                     }
                 } else {
@@ -557,6 +836,18 @@ fun StickyNoteApp(
                                 Text(note.title.ifBlank { "Bez naslova" }, style = MaterialTheme.typography.titleMedium)
                                 Spacer(Modifier.height(8.dp))
                                 Text(note.text, maxLines = 8)
+                                note.attachmentUri?.let { uri ->
+                                    val preview = remember(uri) { loadTaskThumbnail(context, uri) }
+                                    if (preview != null) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Image(
+                                            bitmap = preview.asImageBitmap(),
+                                            contentDescription = "Slika bilješke",
+                                            modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    }
+                                }
                                 Spacer(Modifier.height(10.dp))
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                     TextButton(onClick = {
@@ -585,15 +876,108 @@ fun StickyNoteApp(
             }
         }
 
+        if (showCreateChooser) {
+            AlertDialog(
+                onDismissRequest = { showCreateChooser = false },
+                title = { Text("Što želiš napraviti?") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                showCreateChooser = false
+                                // Switch to the To-do screen before opening the new-task dialog.
+                                // Otherwise tasks are saved successfully but remain hidden behind Notes.
+                                showTasks = true
+                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                    .edit().putBoolean("show_tasks_screen", true).apply()
+                                taskTitle = ""
+                                taskReminderAt = null
+                                taskImageUri = null
+                                showAddTask = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Text("☑  Nova To-do lista")
+                                Text("Napravi popis zadataka i podsjetnika", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                showCreateChooser = false
+                                showTasks = false
+                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                    .edit().putBoolean("show_tasks_screen", false).apply()
+                                editing = Note(
+                                    System.currentTimeMillis(),
+                                    "",
+                                    "",
+                                    if (selected == "Sve") "Osobno" else selected
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Text("▤  Nova bilješka")
+                                Text("Napravi običnu bilješku, po želji sa slikom", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { showCreateChooser = false }) { Text("Odustani") } }
+            )
+        }
+
+        if (showRenameTaskList) {
+            AlertDialog(
+                onDismissRequest = { showRenameTaskList = false },
+                title = { Text("Naziv popisa") },
+                text = {
+                    OutlinedTextField(
+                        value = taskListTitleDraft,
+                        onValueChange = { taskListTitleDraft = it },
+                        singleLine = true,
+                        label = { Text("Naziv") }
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val newTitle = taskListTitleDraft.trim()
+                        taskListTitle = newTitle
+                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("todo_list_title", newTitle).apply()
+                        showRenameTaskList = false
+                    }) { Text("Spremi") }
+                },
+                dismissButton = { TextButton(onClick = { showRenameTaskList = false }) { Text("Odustani") } }
+            )
+        }
+
         if (showAddTask) {
             AlertDialog(
                 onDismissRequest = { showAddTask = false },
                 title = { Text("Novi zadatak") },
                 text = {
                     Column {
-                        OutlinedTextField(taskTitle, { taskTitle = it }, label = { Text("Što treba napraviti?") }, singleLine = true)
+                        Text("Dodaj više zadataka odjednom — svaki novi red postaje zaseban zadatak.", style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = taskTitle,
+                            onValueChange = { taskTitle = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 110.dp, max = 220.dp),
+                            label = { Text("Zadaci") },
+                            placeholder = { Text("Npr. kupiti kruh\nNazvati servis\nPlatiti račun") },
+                            minLines = 3,
+                            maxLines = 8
+                        )
                         Spacer(Modifier.height(12.dp))
                         Text(if (taskReminderAt == null) "Bez podsjetnika" else "Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(taskReminderAt!!)))
+                            if (taskReminderPermissionDenied) Text("Za prikaz podsjetnika dopusti obavijesti u postavkama Androida.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "Slike zadataka ostaju na ovom uređaju i ne sinkroniziraju se s Google Driveom.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFADB4C0)
+                        )
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             TextButton(onClick = { taskImagePicker.launch(arrayOf("image/*")) }) { Text(if (taskImageUri == null) "Dodaj sliku" else "Promijeni sliku") }
                             TextButton(onClick = { taskImageUri = null }) { Text("Ukloni sliku") }
@@ -604,14 +988,11 @@ fun StickyNoteApp(
                         }
                         Row {
                             TextButton(onClick = {
-                                val now = java.util.Calendar.getInstance()
-                                DatePickerDialog(context, { _, year, month, day ->
-                                    val chosen = java.util.Calendar.getInstance().apply { set(year, month, day) }
-                                    TimePickerDialog(context, { _, hour, minute ->
-                                        chosen.set(java.util.Calendar.HOUR_OF_DAY, hour); chosen.set(java.util.Calendar.MINUTE, minute); chosen.set(java.util.Calendar.SECOND, 0); chosen.set(java.util.Calendar.MILLISECOND, 0)
-                                        taskReminderAt = chosen.timeInMillis
-                                    }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
-                                }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                                if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                    taskReminderPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    showTaskReminderPicker()
+                                }
                             }) { Text("Postavi datum i vrijeme") }
                             TextButton(onClick = { taskReminderAt = null }) { Text("Ukloni") }
                         }
@@ -619,11 +1000,20 @@ fun StickyNoteApp(
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        val title = taskTitle.trim()
-                        if (title.isNotEmpty()) {
-                            val task = TodoTask(System.currentTimeMillis(), title, false, taskReminderAt, taskImageUri)
-                            val updated = tasks + task; tasks = updated; saveTasks(context, updated)
-                            task.reminderAt?.let { scheduleReminder(context, task) }
+                        val titles = taskTitle.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                        if (titles.isNotEmpty()) {
+                            // Keep IDs unique even when adding many rows quickly or after restoring older tasks.
+                            val firstId = maxOf(
+                                System.currentTimeMillis(),
+                                (tasks.maxOfOrNull { it.id } ?: 0L) + 1L
+                            )
+                            val added = titles.mapIndexed { index, title ->
+                                TodoTask(firstId + index, title, false, taskReminderAt, taskImageUri)
+                            }
+                            val updated = tasks + added
+                            tasks = updated
+                            saveTasks(context, updated)
+                            added.forEach { task -> task.reminderAt?.let { scheduleReminder(context, task) } }
                         }
                         showAddTask = false
                     }) { Text("Spremi") }
@@ -637,50 +1027,286 @@ fun StickyNoteApp(
             var body by remember(note.id) { mutableStateOf(note.text) }
             var cat by remember(note.id) { mutableStateOf(if (note.category == "") "Osobno" else note.category) }
             var noteColor by remember(note.id) { mutableLongStateOf(note.color) }
+            var noteReminderAt by remember(note.id) { mutableStateOf(note.reminderAt) }
+            var noteAttachmentUri by remember(note.id) { mutableStateOf(note.attachmentUri) }
+            val noteAttachmentPicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) {
+                    try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
+                    noteAttachmentUri = uri.toString()
+                }
+            }
+            var noteReminderPermissionDenied by remember(note.id) { mutableStateOf(false) }
+            var pendingNoteReminderPicker by remember(note.id) { mutableStateOf(false) }
 
-            AlertDialog(
+            fun showNoteReminderPicker() {
+                val now = java.util.Calendar.getInstance()
+                DatePickerDialog(context, { _, year, month, day ->
+                    val chosen = java.util.Calendar.getInstance().apply { set(year, month, day) }
+                    TimePickerDialog(context, { _, hour, minute ->
+                        chosen.set(java.util.Calendar.HOUR_OF_DAY, hour)
+                        chosen.set(java.util.Calendar.MINUTE, minute)
+                        chosen.set(java.util.Calendar.SECOND, 0)
+                        chosen.set(java.util.Calendar.MILLISECOND, 0)
+                        if (chosen.timeInMillis > System.currentTimeMillis()) {
+                            noteReminderAt = chosen.timeInMillis
+                            noteReminderPermissionDenied = false
+                        } else {
+                            noteReminderAt = null
+                            android.widget.Toast.makeText(context, "Odaberi vrijeme u budućnosti.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
+                }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
+            }
+
+            val noteReminderPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                pendingNoteReminderPicker = false
+                noteReminderPermissionDenied = !granted
+                if (granted) showNoteReminderPicker()
+            }
+
+            androidx.compose.ui.window.Dialog(
                 onDismissRequest = { editing = null },
-                title = { Text(if (note.title.isBlank()) "Nova bilješka" else "Uredi bilješku") },
-                text = {
-                    Column {
-                        OutlinedTextField(title, { title = it }, label = { Text("Naslov") }, singleLine = true)
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(body, { body = it }, label = { Text("Bilješka") }, minLines = 5)
-                        Spacer(Modifier.height(8.dp))
-                        Text("Tab: $cat")
-                        Spacer(Modifier.height(8.dp))
-                        Text("Boja bilješke")
-                        Row {
-                            listOf(0xFF252525L, 0xFF5A3D31L, 0xFF5B4B1FL, 0xFF3E5739L, 0xFF304B63L, 0xFF563E63L, 0xFF633C4AL).forEach { color ->
-                                TextButton(onClick = { noteColor = color }) { Text("●", color = Color(color)) }
-                            }
-                        }
-                        Row {
-                            categories.filter { it != "Sve" }.forEach { c ->
-                                TextButton(onClick = { cat = c }) { Text(c) }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        if (title.isNotBlank() || body.isNotBlank()) {
-                            persistNotes(
-                                (notes.filterNot { it.id == note.id }) + note.copy(
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color(0xFF17191D)
+                ) {
+                    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            TextButton(onClick = { editing = null }) { Text("Natrag") }
+                            Text(
+                                if (note.title.isBlank()) "Nova bilješka" else "Bilješka",
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                            TextButton(onClick = {
+                                // Save even an empty new note: creating a note should produce a
+                                // visible card instead of silently closing and discarding it.
+                                val saved = note.copy(
                                     title = title,
                                     text = body,
-                                    category = if (cat == "🗑 Otpad") "Osobno" else cat,
+                                    category = if (cat == "🗑 Otpad" || cat == "Sve") "Osobno" else cat,
                                     color = noteColor,
                                     trashed = false,
+                                    reminderAt = noteReminderAt,
+                                    attachmentUri = noteAttachmentUri,
                                     updatedAt = System.currentTimeMillis()
                                 )
+                                persistNotes((notes.filterNot { it.id == note.id }) + saved)
+                                if (noteReminderAt != null && noteReminderAt!! > System.currentTimeMillis()) {
+                                    scheduleNoteReminder(context, saved)
+                                } else {
+                                    cancelNoteReminder(context, note.id)
+                                }
+                                editing = null
+                            }) { Text("Spremi") }
+                        }
+
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                            placeholder = { Text("Naslov") },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.titleLarge
+                        )
+
+                        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                                val lineGap = 30.dp.toPx()
+                                var y = lineGap
+                                while (y < size.height) {
+                                    drawLine(
+                                        color = Color(0xFF343A45),
+                                        start = androidx.compose.ui.geometry.Offset(0f, y),
+                                        end = androidx.compose.ui.geometry.Offset(size.width, y),
+                                        strokeWidth = 1.dp.toPx()
+                                    )
+                                    y += lineGap
+                                }
+                            }
+                            androidx.compose.foundation.text.BasicTextField(
+                                value = body,
+                                onValueChange = { body = it },
+                                modifier = Modifier.fillMaxSize().padding(top = 5.dp),
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                    color = Color(0xFFF0F0F0),
+                                    lineHeight = 30.sp
+                                ),
+                                decorationBox = { innerTextField ->
+                                    Box(Modifier.fillMaxSize()) {
+                                        if (body.isEmpty()) {
+                                            Text("Započni pisati bilješku…", color = Color(0xFF858B96))
+                                        }
+                                        innerTextField()
+                                    }
+                                }
                             )
                         }
-                        editing = null
-                    }) { Text("Spremi") }
-                },
-                dismissButton = { TextButton(onClick = { editing = null }) { Text("Odustani") } }
-            )
+
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .heightIn(max = 260.dp)
+                                .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Text("Podsjetnik", style = MaterialTheme.typography.labelLarge)
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick = {
+                                    if (Build.VERSION.SDK_INT >= 33 &&
+                                        context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                        pendingNoteReminderPicker = true
+                                        noteReminderPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        showNoteReminderPicker()
+                                    }
+                                }) { Text(if (noteReminderAt == null) "＋ Dodaj" else "Promijeni") }
+                                if (noteReminderAt != null) TextButton(onClick = { noteReminderAt = null }) { Text("Ukloni") }
+                            }
+                            noteReminderAt?.let { at ->
+                                Text(
+                                    java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            if (noteReminderPermissionDenied) {
+                                Text(
+                                    "Obavijesti nisu dopuštene. Uključi ih u postavkama Androida kako bi podsjetnici mogli stizati.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text("Kategorija", style = MaterialTheme.typography.labelLarge)
+                            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(categories.filter { it != "Sve" }) { category ->
+                                    FilterChip(
+                                        selected = cat == category,
+                                        onClick = { cat = category },
+                                        label = { Text(category) }
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            var colorMenuExpanded by remember(note.id) { mutableStateOf(false) }
+                            val noteColors = listOf(
+                                0xFF353535L to "Ugljen siva",
+                                0xFF8B453AL to "Terakota",
+                                0xFF8B641FL to "Zlatno smeđa",
+                                0xFF567B38L to "Maslinasto zelena",
+                                0xFF276A75L to "Petrolej",
+                                0xFF315B91L to "Plava",
+                                0xFF65439AL to "Ljubičasta",
+                                0xFF93456CL to "Roza",
+                                0xFF7D573CL to "Smeđa",
+                                0xFF5E6D36L to "Maslinasta",
+                                0xFF355E4BL to "Šumsko zelena",
+                                0xFF5B526FL to "Sivo ljubičasta"
+                            )
+                            Text("Boja bilješke", style = MaterialTheme.typography.labelLarge)
+                            Box {
+                                OutlinedButton(
+                                    onClick = { colorMenuExpanded = true },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Surface(
+                                        modifier = Modifier.size(22.dp),
+                                        shape = androidx.compose.foundation.shape.CircleShape,
+                                        color = Color(noteColor),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.65f))
+                                    ) {}
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(noteColors.firstOrNull { it.first == noteColor }?.second ?: "Odaberi boju")
+                                    Spacer(Modifier.weight(1f))
+                                    Text("▾")
+                                }
+                                DropdownMenu(
+                                    expanded = colorMenuExpanded,
+                                    onDismissRequest = { colorMenuExpanded = false },
+                                    modifier = Modifier.fillMaxWidth(0.88f)
+                                ) {
+                                    noteColors.forEach { (color, label) ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                                    Surface(
+                                                        modifier = Modifier.size(26.dp),
+                                                        shape = androidx.compose.foundation.shape.CircleShape,
+                                                        color = Color(color),
+                                                        border = if (noteColor == color) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                                                    ) {}
+                                                    Spacer(Modifier.width(12.dp))
+                                                    Text(label)
+                                                    Spacer(Modifier.weight(1f))
+                                                    if (noteColor == color) Text("✓", color = MaterialTheme.colorScheme.primary)
+                                                }
+                                            },
+                                            onClick = {
+                                                noteColor = color
+                                                colorMenuExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Divider(color = Color(0xFF343A45))
+                            Text(
+                                "Privici ostaju na ovom uređaju i ne sinkroniziraju se s Google Driveom.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFADB4C0)
+                            )
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Slika bilješke", style = MaterialTheme.typography.labelLarge)
+                                    Text(
+                                        noteAttachmentUri?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "Nema slike",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFFADB4C0),
+                                        maxLines = 1
+                                    )
+                                }
+                                TextButton(onClick = { noteAttachmentPicker.launch(arrayOf("image/*")) }) {
+                                    Text(if (noteAttachmentUri == null) "＋ Dodaj sliku" else "Promijeni sliku")
+                                }
+                                if (noteAttachmentUri != null) TextButton(onClick = { noteAttachmentUri = null }) { Text("Ukloni") }
+                            }
+                            noteAttachmentUri?.let { uri ->
+                                val attachmentPreview = remember(uri) { loadTaskThumbnail(context, uri) }
+                                if (attachmentPreview != null) {
+                                    Image(
+                                        bitmap = attachmentPreview.asImageBitmap(),
+                                        contentDescription = "Pregled privitka bilješke",
+                                        modifier = Modifier.fillMaxWidth().heightIn(max = 150.dp),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
+                                TextButton(onClick = {
+                                    try {
+                                        val attachmentUri = Uri.parse(uri)
+                                        val mimeType = context.contentResolver.getType(attachmentUri) ?: "*/*"
+                                        context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(attachmentUri, mimeType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                                    } catch (_: Exception) { }
+                                }) { Text("Otvori privitak") }
+                                Text(
+                                    "Privitak je spremljen na ovom uređaju; prijenos privitaka na Google Drive i druge uređaje još nije aktiviran.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFADB4C0)
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+                }
+            }
         }
 
         confirmPermanentDelete?.let { note ->
@@ -737,6 +1363,7 @@ fun StickyNoteApp(
                     TextButton(onClick = {
                         val n = newTabName.trim()
                         if (n.isNotEmpty() && !categories.contains(n)) {
+                            saveDeletedCategories(context, loadDeletedCategories(context) - n)
                             persistCategories(categories + n)
                             selected = n
                         }
@@ -757,14 +1384,66 @@ fun StickyNoteApp(
                     TextButton(onClick = {
                         val n = renameText.trim()
                         if (n.isNotEmpty() && n != "Sve" && !categories.contains(n)) {
+                            val deletedCategories = loadDeletedCategories(context) + old - n
+                            saveDeletedCategories(context, deletedCategories)
                             persistCategories(categories.map { if (it == old) n else it })
-                            persistNotes(notes.map { if (it.category == old) it.copy(category = n) else it })
+                            val renamedAt = System.currentTimeMillis()
+                            persistNotes(notes.map { if (it.category == old) it.copy(category = n, updatedAt = renamedAt) else it })
                             if (selected == old) selected = n
                         }
                         showRenameTab = null
                     }) { Text("Spremi") }
                 },
                 dismissButton = { TextButton(onClick = { showRenameTab = null }) { Text("Odustani") } }
+            )
+        }
+
+        if (showServerSettings) {
+            AlertDialog(
+                onDismissRequest = { showServerSettings = false; serverConfigError = null },
+                title = { Text("Postavke servera") },
+                text = {
+                    Column {
+                        Text(
+                            "Ovdje možeš promijeniti adresu budućeg zajedničkog servera. Sinkronizacija s ovim serverom još nije uključena.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = serverUrlDraft,
+                            onValueChange = { serverUrlDraft = it; serverConfigError = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Adresa servera") },
+                            singleLine = true,
+                            placeholder = { Text("https://notes.mandocloud.uk") }
+                        )
+                        serverConfigError?.let {
+                            Spacer(Modifier.height(6.dp))
+                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        try {
+                            NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
+                            serverUrlDraft = NotesServerConfig.baseUrl(context)
+                            serverConfigError = null
+                            showServerSettings = false
+                        } catch (e: Exception) {
+                            serverConfigError = e.message ?: "Adresa servera nije valjana."
+                        }
+                    }) { Text("Spremi") }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = {
+                            serverUrlDraft = NotesServerConfig.DEFAULT_BASE_URL
+                            serverConfigError = null
+                        }) { Text("Zadano") }
+                        TextButton(onClick = { showServerSettings = false; serverConfigError = null }) { Text("Odustani") }
+                    }
+                }
             )
         }
 
@@ -775,6 +1454,33 @@ fun StickyNoteApp(
                 text = { Text(message.orEmpty()) },
                 confirmButton = { TextButton(onClick = onDismissMessage) { Text("OK") } }
             )
+        }
+    }
+}
+
+
+/**
+ * AlarmManager alarms are cleared by Android after a reboot. Re-create future
+ * reminders from the existing local JSON store without changing note/task data.
+ */
+class BootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
+            intent.action != Intent.ACTION_MY_PACKAGE_REPLACED
+        ) return
+        loadTasks(context).forEach { task ->
+            if (!task.completed && task.reminderAt != null && task.reminderAt > System.currentTimeMillis()) {
+                scheduleReminder(context, task)
+            } else {
+                cancelReminder(context, task.id)
+            }
+        }
+        loadNotes(context).forEach { note ->
+            if (!note.trashed && note.reminderAt != null && note.reminderAt > System.currentTimeMillis()) {
+                scheduleNoteReminder(context, note)
+            } else {
+                cancelNoteReminder(context, note.id)
+            }
         }
     }
 }
