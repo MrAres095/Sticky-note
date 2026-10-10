@@ -74,11 +74,5 @@ class NoteListWidgetConfigActivity : Activity() {
         }
         setContentView(layout)
 
-        save.setOnClickListener {
-            prefs.edit().putString("list_widget_tab_$widgetId", tabs[spinner.selectedItemPosition]).apply()
-            NoteListWidgetProvider.update(this, AppWidgetManager.getInstance(this), widgetId)
-            setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
-            finish()
-        }
     }
 }
