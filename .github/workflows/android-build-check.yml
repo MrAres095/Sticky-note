@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: android-build-${{ github.head_ref || github.ref }}
+  group: android-build-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
