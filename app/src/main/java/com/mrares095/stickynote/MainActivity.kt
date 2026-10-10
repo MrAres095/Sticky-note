@@ -308,6 +308,8 @@ private fun saveNotes(context: Context, values: List<Note>) {
     val edit = prefs.edit()
     if (current != null) edit.putString("${NOTES}_backup", current)
     edit.putString(NOTES, a.toString()).apply()
+    NoteWidgetProvider.updateAll(context)
+    NoteListWidgetProvider.updateAll(context)
 }
 
 class MainActivity : ComponentActivity() {
