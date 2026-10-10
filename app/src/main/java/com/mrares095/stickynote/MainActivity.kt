@@ -817,7 +817,7 @@ fun StickyNoteApp(
                             onValueChange = { taskTitle = it },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 110.dp, max = 220.dp),
                             label = { Text("Zadaci") },
-                            placeholder = { Text("Npr. kupiti kruh\\nNazvati servis\\nPlatiti račun") },
+                            placeholder = { Text("Npr. kupiti kruh\nNazvati servis\nPlatiti račun") },
                             minLines = 3,
                             maxLines = 8
                         )
