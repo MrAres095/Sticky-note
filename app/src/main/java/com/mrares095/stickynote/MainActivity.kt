@@ -345,31 +345,17 @@ class MainActivity : ComponentActivity() {
                         current.first().title == "Dobrodošli" &&
                         current.first().text.contains("Sticky & Note")
 
-                    val mergedNotes = if (firstSync && localIsFreshInstall && remote.notes.isNotEmpty()) {
-                        remote.notes
-                    } else {
-                        val byId = LinkedHashMap<Long, Note>()
-                        remote.notes.forEach { byId[it.id] = it }
-                        current.forEach { local ->
-                            val cloud = byId[local.id]
-                            when {
-                                cloud == null -> byId[local.id] = local
-                                local.updatedAt > cloud.updatedAt + 1000L -> byId[local.id] = local
-                                else -> byId[local.id] = cloud.copy(
-                                    // Attachment URIs are device-local, not portable Drive links.
-                                    // Keep a local attachment if the cloud copy wins the text conflict.
-                                    attachmentUri = local.attachmentUri ?: cloud.attachmentUri
-                                )
-                            }
-                        }
-                        byId.values.toList()
-                    }
-
-                    val notes = mergedNotes.filterNot { it.id in deletedNoteIds }
-                    val categories = (currentCategories + remote.categories)
-                        .distinct()
-                        .filterNot { it in deletedCategories }
-                        .ifEmpty { listOf("Sve") }
+                    val notes = DriveStateMerger.mergeNotes(
+                        localNotes = current,
+                        remoteNotes = remote.notes,
+                        preferRemoteOnFirstSync = firstSync && localIsFreshInstall,
+                        deletedNoteIds = deletedNoteIds
+                    )
+                    val categories = DriveStateMerger.mergeCategories(
+                        localCategories = currentCategories,
+                        remoteCategories = remote.categories,
+                        deletedCategories = deletedCategories
+                    )
 
                     GoogleDriveSync.uploadState(token, notes, categories, deletedNoteIds, deletedCategories)
                     MergedDriveState(notes, categories, deletedNoteIds, deletedCategories)
