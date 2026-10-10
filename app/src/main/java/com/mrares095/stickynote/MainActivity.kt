@@ -98,6 +98,7 @@ private fun saveTasks(context: Context, tasks: List<TodoTask>) {
     val edit = prefs.edit()
     if (current != null) edit.putString("${TASKS}_backup", current)
     edit.putString(TASKS, a.toString()).apply()
+    NoteListWidgetProvider.updateAll(context)
 }
 
 private fun loadTaskThumbnail(context: Context, uriString: String): Bitmap? {
