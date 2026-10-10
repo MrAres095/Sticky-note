@@ -885,6 +885,9 @@ fun StickyNoteApp(
                         OutlinedButton(
                             onClick = {
                                 showCreateChooser = false
+                                // Switch to the To-do screen before opening the new-task dialog.
+                                // Otherwise tasks are saved successfully but remain hidden behind Notes.
+                                showTasks = true
                                 taskTitle = ""
                                 taskReminderAt = null
                                 taskImageUri = null
@@ -1078,23 +1081,21 @@ fun StickyNoteApp(
                                 style = MaterialTheme.typography.titleLarge
                             )
                             TextButton(onClick = {
-                                if (title.isNotBlank() || body.isNotBlank() || noteAttachmentUri != null) {
-                                    val saved = note.copy(
-                                        title = title,
-                                        text = body,
-                                        category = if (cat == "🗑 Otpad" || cat == "Sve") "Osobno" else cat,
-                                        color = noteColor,
-                                        trashed = false,
-                                        reminderAt = noteReminderAt,
-                                        attachmentUri = noteAttachmentUri,
-                                        updatedAt = System.currentTimeMillis()
-                                    )
-                                    persistNotes((notes.filterNot { it.id == note.id }) + saved)
-                                    if (noteReminderAt != null && noteReminderAt!! > System.currentTimeMillis()) {
-                                        scheduleNoteReminder(context, saved)
-                                    } else {
-                                        cancelNoteReminder(context, note.id)
-                                    }
+                                // Save even an empty new note: creating a note should produce a
+                                // visible card instead of silently closing and discarding it.
+                                val saved = note.copy(
+                                    title = title,
+                                    text = body,
+                                    category = if (cat == "🗑 Otpad" || cat == "Sve") "Osobno" else cat,
+                                    color = noteColor,
+                                    trashed = false,
+                                    reminderAt = noteReminderAt,
+                                    attachmentUri = noteAttachmentUri,
+                                    updatedAt = System.currentTimeMillis()
+                                )
+                                persistNotes((notes.filterNot { it.id == note.id }) + saved)
+                                if (noteReminderAt != null && noteReminderAt!! > System.currentTimeMillis()) {
+                                    scheduleNoteReminder(context, saved)
                                 } else {
                                     cancelNoteReminder(context, note.id)
                                 }
