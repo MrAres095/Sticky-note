@@ -722,6 +722,30 @@ fun StickyNoteApp(
             var cat by remember(note.id) { mutableStateOf(if (note.category == "") "Osobno" else note.category) }
             var noteColor by remember(note.id) { mutableLongStateOf(note.color) }
             var noteReminderAt by remember(note.id) { mutableStateOf(note.reminderAt) }
+            var noteReminderPermissionDenied by remember(note.id) { mutableStateOf(false) }
+            var pendingNoteReminderPicker by remember(note.id) { mutableStateOf(false) }
+
+            fun showNoteReminderPicker() {
+                val now = java.util.Calendar.getInstance()
+                DatePickerDialog(context, { _, year, month, day ->
+                    val chosen = java.util.Calendar.getInstance().apply { set(year, month, day) }
+                    TimePickerDialog(context, { _, hour, minute ->
+                        chosen.set(java.util.Calendar.HOUR_OF_DAY, hour)
+                        chosen.set(java.util.Calendar.MINUTE, minute)
+                        chosen.set(java.util.Calendar.SECOND, 0)
+                        chosen.set(java.util.Calendar.MILLISECOND, 0)
+                        noteReminderAt = chosen.timeInMillis
+                    }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
+                }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
+            }
+
+            val noteReminderPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                pendingNoteReminderPicker = false
+                noteReminderPermissionDenied = !granted
+                if (granted) showNoteReminderPicker()
+            }
 
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = { editing = null },
@@ -818,17 +842,13 @@ fun StickyNoteApp(
                                 Text("Podsjetnik", style = MaterialTheme.typography.labelLarge)
                                 Spacer(Modifier.weight(1f))
                                 TextButton(onClick = {
-                                    val now = java.util.Calendar.getInstance()
-                                    DatePickerDialog(context, { _, year, month, day ->
-                                        val chosen = java.util.Calendar.getInstance().apply { set(year, month, day) }
-                                        TimePickerDialog(context, { _, hour, minute ->
-                                            chosen.set(java.util.Calendar.HOUR_OF_DAY, hour)
-                                            chosen.set(java.util.Calendar.MINUTE, minute)
-                                            chosen.set(java.util.Calendar.SECOND, 0)
-                                            chosen.set(java.util.Calendar.MILLISECOND, 0)
-                                            noteReminderAt = chosen.timeInMillis
-                                        }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
-                                    }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                                    if (Build.VERSION.SDK_INT >= 33 &&
+                                        context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                        pendingNoteReminderPicker = true
+                                        noteReminderPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        showNoteReminderPicker()
+                                    }
                                 }) { Text(if (noteReminderAt == null) "＋ Dodaj" else "Promijeni") }
                                 if (noteReminderAt != null) TextButton(onClick = { noteReminderAt = null }) { Text("Ukloni") }
                             }
@@ -837,6 +857,13 @@ fun StickyNoteApp(
                                     java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            if (noteReminderPermissionDenied) {
+                                Text(
+                                    "Obavijesti nisu dopuštene. Uključi ih u postavkama Androida kako bi podsjetnici mogli stizati.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
                                 )
                             }
                             Spacer(Modifier.height(4.dp))
