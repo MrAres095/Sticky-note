@@ -516,6 +516,11 @@ fun StickyNoteApp(
     var serverUrlDraft by remember { mutableStateOf(NotesServerConfig.DEFAULT_BASE_URL) }
     var serverConfigError by remember { mutableStateOf<String?>(null) }
     var tasks by remember { mutableStateOf(loadTasks(context)) }
+    var taskListTitle by remember {
+        mutableStateOf(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("todo_list_title", "To-do lista") ?: "To-do lista")
+    }
+    var showRenameTaskList by remember { mutableStateOf(false) }
+    var taskListTitleDraft by remember { mutableStateOf(taskListTitle) }
     var showAddTask by remember { mutableStateOf(false) }
     var taskTitle by remember { mutableStateOf("") }
     var taskReminderAt by remember { mutableStateOf<Long?>(null) }
@@ -666,8 +671,16 @@ fun StickyNoteApp(
                 if (showTasks) {
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         Column(Modifier.weight(1f)) {
-                            Text("To-do lista", style = MaterialTheme.typography.titleLarge)
-                            Text("${tasks.count { !it.completed }} preostalo · ${tasks.count { it.completed }} dovršeno", style = MaterialTheme.typography.bodySmall)
+                            TextButton(
+                                onClick = {
+                                    taskListTitleDraft = taskListTitle
+                                    showRenameTaskList = true
+                                },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(taskListTitle, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                            Text("${tasks.count { !it.completed }} preostalo · ${tasks.count { it.completed }} dovršeno", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (tasks.any { it.completed }) {
                             TextButton(onClick = {
@@ -704,7 +717,7 @@ fun StickyNoteApp(
                                     Modifier.fillMaxWidth().padding(vertical = 7.dp),
                                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                                 ) {
-                                    Text("⠿", modifier = Modifier.padding(end = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleLarge)
+                                    Text("⠿", modifier = Modifier.padding(end = 10.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleLarge)
                                     Checkbox(checked = task.completed, onCheckedChange = { checked ->
                                         val updated = tasks.map { if (it.id == task.id) it.copy(completed = checked) else it }
                                         tasks = updated
@@ -722,7 +735,14 @@ fun StickyNoteApp(
                                         }
                                         task.imageUri?.let { uri ->
                                             val thumbnail = remember(uri) { loadTaskThumbnail(context, uri) }
-                                            if (thumbnail != null) Image(bitmap = thumbnail.asImageBitmap(), contentDescription = "Slika zadatka", modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp).padding(top = 8.dp), contentScale = ContentScale.Fit)
+                                            if (thumbnail != null) {
+                                                Image(
+                                                    bitmap = thumbnail.asImageBitmap(),
+                                                    contentDescription = "Slika zadatka",
+                                                    modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(top = 8.dp),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            }
                                         }
                                     }
                                     TextButton(onClick = {
@@ -732,7 +752,7 @@ fun StickyNoteApp(
                                         saveTasks(context, updated)
                                     }) { Text("⋮") }
                                 }
-                                Divider(color = Color(0xFF343A45))
+                                Divider(color = Color(0xFF343A45), thickness = 1.dp)
                             }
                         }
                         item {
@@ -825,6 +845,18 @@ fun StickyNoteApp(
                                 Text(note.title.ifBlank { "Bez naslova" }, style = MaterialTheme.typography.titleMedium)
                                 Spacer(Modifier.height(8.dp))
                                 Text(note.text, maxLines = 8)
+                                note.attachmentUri?.let { uri ->
+                                    val preview = remember(uri) { loadTaskThumbnail(context, uri) }
+                                    if (preview != null) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Image(
+                                            bitmap = preview.asImageBitmap(),
+                                            contentDescription = "Slika bilješke",
+                                            modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    }
+                                }
                                 Spacer(Modifier.height(10.dp))
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                     TextButton(onClick = {
@@ -851,6 +883,30 @@ fun StickyNoteApp(
                 }
                 }
             }
+        }
+
+        if (showRenameTaskList) {
+            AlertDialog(
+                onDismissRequest = { showRenameTaskList = false },
+                title = { Text("Naziv popisa") },
+                text = {
+                    OutlinedTextField(
+                        value = taskListTitleDraft,
+                        onValueChange = { taskListTitleDraft = it },
+                        singleLine = true,
+                        label = { Text("Naziv") }
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val newTitle = taskListTitleDraft.trim().ifBlank { "To-do lista" }
+                        taskListTitle = newTitle
+                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("todo_list_title", newTitle).apply()
+                        showRenameTaskList = false
+                    }) { Text("Spremi") }
+                },
+                dismissButton = { TextButton(onClick = { showRenameTaskList = false }) { Text("Odustani") } }
+            )
         }
 
         if (showAddTask) {
