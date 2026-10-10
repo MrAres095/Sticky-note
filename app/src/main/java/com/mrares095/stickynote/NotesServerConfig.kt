@@ -23,7 +23,13 @@ object NotesServerConfig {
             .getString(SERVER_URL_KEY, null)
             ?.trim()
             .orEmpty()
-        return normalizeBaseUrl(saved.ifBlank { DEFAULT_BASE_URL })
+        return try {
+            normalizeBaseUrl(saved.ifBlank { DEFAULT_BASE_URL })
+        } catch (_: IllegalArgumentException) {
+            // A malformed value from an older app version must not prevent the app
+            // from opening settings or starting. The user can save a corrected URL.
+            DEFAULT_BASE_URL
+        }
     }
 
     fun apiUrl(context: Context, path: String): String {
