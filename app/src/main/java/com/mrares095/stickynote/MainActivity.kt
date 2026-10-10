@@ -824,6 +824,11 @@ fun StickyNoteApp(
                         Spacer(Modifier.height(12.dp))
                         Text(if (taskReminderAt == null) "Bez podsjetnika" else "Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(taskReminderAt!!)))
                             if (taskReminderPermissionDenied) Text("Za prikaz podsjetnika dopusti obavijesti u postavkama Androida.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "Slike zadataka ostaju na ovom uređaju i ne sinkroniziraju se s Google Driveom.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFADB4C0)
+                        )
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             TextButton(onClick = { taskImagePicker.launch(arrayOf("image/*")) }) { Text(if (taskImageUri == null) "Dodaj sliku" else "Promijeni sliku") }
                             TextButton(onClick = { taskImageUri = null }) { Text("Ukloni sliku") }
@@ -1057,6 +1062,11 @@ fun StickyNoteApp(
                             }
                             Spacer(Modifier.height(8.dp))
                             Divider(color = Color(0xFF343A45))
+                            Text(
+                                "Privici ostaju na ovom uređaju i ne sinkroniziraju se s Google Driveom.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFADB4C0)
+                            )
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Privitak", style = MaterialTheme.typography.labelLarge)
