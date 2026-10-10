@@ -957,13 +957,17 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         loadTasks(context).forEach { task ->
-            if (task.reminderAt != null && task.reminderAt > System.currentTimeMillis()) {
+            if (!task.completed && task.reminderAt != null && task.reminderAt > System.currentTimeMillis()) {
                 scheduleReminder(context, task)
+            } else {
+                cancelReminder(context, task.id)
             }
         }
         loadNotes(context).forEach { note ->
-            if (note.reminderAt != null && note.reminderAt > System.currentTimeMillis()) {
+            if (!note.trashed && note.reminderAt != null && note.reminderAt > System.currentTimeMillis()) {
                 scheduleNoteReminder(context, note)
+            } else {
+                cancelNoteReminder(context, note.id)
             }
         }
     }
