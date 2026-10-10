@@ -53,7 +53,8 @@ object GoogleDriveSync {
                 pinned = o.optBoolean("pinned", false),
                 keepId = o.optString("keepId").takeIf { it.isNotBlank() },
                 updatedAt = o.optLong("updatedAt", System.currentTimeMillis()),
-                trashed = o.optBoolean("trashed", false)
+                trashed = o.optBoolean("trashed", false),
+                reminderAt = o.optLong("reminderAt").takeIf { it > 0L }
             )
         }
 
@@ -83,6 +84,7 @@ object GoogleDriveSync {
                 put("keepId", n.keepId ?: "")
                 put("updatedAt", n.updatedAt)
                 put("trashed", n.trashed)
+                put("reminderAt", n.reminderAt ?: 0L)
             })
         }
         val categoriesJson = JSONArray()
