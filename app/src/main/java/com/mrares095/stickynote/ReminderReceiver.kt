@@ -18,7 +18,7 @@ class ReminderReceiver : BroadcastReceiver() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
                 NotificationChannel("todo_reminders", "Podsjetnici", NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "Podsjetnici za zadatke u Sticky & Note"
+                    description = "Podsjetnici za bilješke i zadatke u Sticky & Note"
                 }
             )
         }
