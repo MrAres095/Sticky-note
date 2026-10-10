@@ -180,17 +180,39 @@ private const val DELETED_NOTE_IDS = "drive_deleted_note_ids"
 private const val DELETED_CATEGORIES = "drive_deleted_categories"
 private const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
-private fun loadCategories(context: Context): List<String> {
-    val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(CATEGORIES, null)
-        ?: return listOf("Sve", "Osobno", "Recepti")
+private fun decodeCategories(raw: String): List<String> {
     val a = JSONArray(raw)
-    return List(a.length()) { a.getString(it) }
+    return List(a.length()) { a.getString(it) }.ifEmpty { listOf("Sve") }
+}
+
+private fun loadCategories(context: Context): List<String> {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString(CATEGORIES, null) ?: return listOf("Sve", "Osobno", "Recepti")
+    return try {
+        decodeCategories(raw)
+    } catch (_: Exception) {
+        val backup = prefs.getString("${CATEGORIES}_backup", null)
+        prefs.edit().putString("${CATEGORIES}_corrupt_backup", raw).apply()
+        if (backup != null) {
+            try {
+                decodeCategories(backup).also { prefs.edit().putString(CATEGORIES, backup).apply() }
+            } catch (_: Exception) {
+                listOf("Sve", "Osobno", "Recepti")
+            }
+        } else {
+            listOf("Sve", "Osobno", "Recepti")
+        }
+    }
 }
 
 private fun saveCategories(context: Context, values: List<String>) {
     val a = JSONArray()
     values.forEach { a.put(it) }
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(CATEGORIES, a.toString()).apply()
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val current = prefs.getString(CATEGORIES, null)
+    val edit = prefs.edit()
+    if (current != null) edit.putString("${CATEGORIES}_backup", current)
+    edit.putString(CATEGORIES, a.toString()).apply()
 }
 
 private fun loadDeletedNoteIds(context: Context): Set<Long> =
@@ -221,9 +243,7 @@ private fun saveDeletedCategories(context: Context, values: Set<String>) {
         .apply()
 }
 
-private fun loadNotes(context: Context): List<Note> {
-    val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(NOTES, null)
-        ?: return listOf(Note(1L, "Dobrodošli", "Ovo je tvoja nova Sticky & Note bilješka.", "Osobno"))
+private fun decodeNotes(raw: String): List<Note> {
     val a = JSONArray(raw)
     return List(a.length()) {
         val o = a.getJSONObject(it)
@@ -241,6 +261,27 @@ private fun loadNotes(context: Context): List<Note> {
             o.optLong("reminderAt").takeIf { it > 0L },
             o.optString("attachmentUri").takeIf { it.isNotBlank() && it != "null" }
         )
+    }
+}
+
+private fun loadNotes(context: Context): List<Note> {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString(NOTES, null)
+        ?: return listOf(Note(1L, "Dobrodošli", "Ovo je tvoja nova Sticky & Note bilješka.", "Osobno"))
+    return try {
+        decodeNotes(raw)
+    } catch (_: Exception) {
+        val backup = prefs.getString("${NOTES}_backup", null)
+        prefs.edit().putString("${NOTES}_corrupt_backup", raw).apply()
+        if (backup != null) {
+            try {
+                decodeNotes(backup).also { prefs.edit().putString(NOTES, backup).apply() }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
     }
 }
 
@@ -262,7 +303,11 @@ private fun saveNotes(context: Context, values: List<Note>) {
             put("attachmentUri", n.attachmentUri ?: "")
         })
     }
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(NOTES, a.toString()).apply()
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val current = prefs.getString(NOTES, null)
+    val edit = prefs.edit()
+    if (current != null) edit.putString("${NOTES}_backup", current)
+    edit.putString(NOTES, a.toString()).apply()
 }
 
 class MainActivity : ComponentActivity() {
