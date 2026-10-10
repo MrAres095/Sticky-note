@@ -702,6 +702,29 @@ fun StickyNoteApp(
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
                 if (showTasks) {
+                    val todoTabIndex = categories.size + todoLists.indexOfFirst { it.id == selectedTodoListId }.coerceAtLeast(0)
+                    ScrollableTabRow(selectedTabIndex = todoTabIndex.coerceAtLeast(0)) {
+                        categories.forEach { category ->
+                            Tab(selected = false, onClick = {
+                                selected = category
+                                showTasks = false
+                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                                    .putBoolean("show_tasks_screen", false).apply()
+                            }, text = { Text(category) })
+                        }
+                        todoLists.forEach { list ->
+                            Tab(selected = list.id == selectedTodoListId, onClick = {
+                                selectedTodoListId = list.id
+                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                                    .putString("selected_todo_list_id", list.id)
+                                    .putBoolean("show_tasks_screen", true).apply()
+                            }, text = { Text("☑ " + list.title) })
+                        }
+                        Tab(selected = false, onClick = {
+                            newTodoListTitle = ""
+                            showCreateTodoList = true
+                        }, text = { Text("+") })
+                    }
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         Column(Modifier.weight(1f)) {
                             TextButton(
@@ -816,7 +839,21 @@ fun StickyNoteApp(
                 } else {
                 ScrollableTabRow(selectedTabIndex = categories.indexOf(selected).coerceAtLeast(0)) {
                     categories.forEach { category ->
-                        Tab(selected = selected == category, onClick = { selected = category }, text = { Text(category) })
+                        Tab(selected = selected == category, onClick = {
+                            selected = category
+                            showTasks = false
+                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                                .putBoolean("show_tasks_screen", false).apply()
+                        }, text = { Text(category) })
+                    }
+                    todoLists.forEach { list ->
+                        Tab(selected = false, onClick = {
+                            selectedTodoListId = list.id
+                            showTasks = true
+                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                                .putString("selected_todo_list_id", list.id)
+                                .putBoolean("show_tasks_screen", true).apply()
+                        }, text = { Text("☑ " + list.title) })
                     }
                     Tab(selected = false, onClick = { showAddTab = true }, text = { Text("+") })
                 }
