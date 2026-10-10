@@ -18,7 +18,7 @@ class NoteListWidgetConfigActivity : Activity() {
         if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID) { finish(); return }
 
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-        val tabs = mutableListOf("Sve")
+        val tabs = mutableListOf("Sve", "To-do lista")
         try {
             val raw = prefs.getString(CATEGORIES, null)
             if (!raw.isNullOrBlank()) {
