@@ -314,7 +314,11 @@ class MainActivity : ComponentActivity() {
                             when {
                                 cloud == null -> byId[local.id] = local
                                 local.updatedAt > cloud.updatedAt + 1000L -> byId[local.id] = local
-                                else -> byId[local.id] = cloud
+                                else -> byId[local.id] = cloud.copy(
+                                    // Attachment URIs are device-local, not portable Drive links.
+                                    // Keep a local attachment if the cloud copy wins the text conflict.
+                                    attachmentUri = local.attachmentUri ?: cloud.attachmentUri
+                                )
                             }
                         }
                         byId.values.toList()
