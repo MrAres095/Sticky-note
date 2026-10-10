@@ -327,6 +327,16 @@ class MainActivity : ComponentActivity() {
 
                 runOnUiThread {
                     saveNotes(this, merged.first)
+                    // Reconcile Android alarms after a Drive download/merge. A reminder can
+                    // arrive from another device, be moved, or have been trashed remotely.
+                    val reminderNow = System.currentTimeMillis()
+                    merged.first.forEach { note ->
+                        if (!note.trashed && note.reminderAt != null && note.reminderAt > reminderNow) {
+                            scheduleNoteReminder(this, note)
+                        } else {
+                            cancelNoteReminder(this, note.id)
+                        }
+                    }
                     saveCategories(this, merged.second)
                     getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                         .edit()
