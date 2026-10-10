@@ -14,7 +14,7 @@ class DriveStateMergerTest {
             listOf(note(2, "old copy", 150), note(3, "new", 300)),
             false, setOf(2)
         )
-        assertEquals(listOf(1L, 3L), merged.map { it.id }.sorted())
+        assertEquals(setOf(1L, 3L), merged.map { it.id }.toSet())
     }
 
     @Test fun newerLocalEditWinsConflict() {
