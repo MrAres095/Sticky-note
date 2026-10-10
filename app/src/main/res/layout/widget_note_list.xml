@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_list_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="10dp"
+    android:background="@drawable/widget_background">
+    <TextView
+        android:id="@+id/widget_list_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Sticky &amp; Note"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        android:paddingBottom="6dp" />
+    <ListView
+        android:id="@+id/widget_note_list_items"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="#30343B"
+        android:dividerHeight="1dp"
+        android:scrollbars="vertical"
+        android:clipToPadding="false" />
+    <TextView
+        android:id="@+id/widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Nema bilješki u ovom tabu"
+        android:padding="8dp"
+        android:textSize="14sp" />
+</LinearLayout>
