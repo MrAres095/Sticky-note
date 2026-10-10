@@ -508,16 +508,20 @@ fun StickyNoteApp(
                     if (tasks.isEmpty()) Text("Još nema zadataka. Dodaj prvi pomoću +.", Modifier.padding(16.dp))
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
                         items(tasks.sortedWith(compareBy<TodoTask> { it.completed }.thenBy { it.reminderAt ?: Long.MAX_VALUE }), key = { it.id }) { task ->
-                            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                                colors = CardDefaults.cardColors(containerColor = if (task.completed) Color(0xFF202329) else Color(0xFF292D35)),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                            ) {
                                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                     Checkbox(checked = task.completed, onCheckedChange = { checked ->
                                         val updated = tasks.map { if (it.id == task.id) it.copy(completed = checked) else it }
                                         tasks = updated; saveTasks(context, updated)
                                         if (checked) cancelReminder(context, task.id) else task.reminderAt?.let { scheduleReminder(context, task) }
                                     })
-                                    Column(Modifier.weight(1f)) {
-                                        Text(task.title, style = MaterialTheme.typography.bodyLarge, color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
-                                        task.reminderAt?.let { at -> Text("Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)), style = MaterialTheme.typography.bodySmall) }
+                                    Column(Modifier.weight(1f).padding(start = 6.dp)) {
+                                        Text(task.title, style = MaterialTheme.typography.titleMedium, color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                                        task.reminderAt?.let { at -> Text("◷ " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
                                         task.imageUri?.let { uri ->
                                             val thumbnail = remember(uri) { loadTaskThumbnail(context, uri) }
                                             if (thumbnail != null) Image(bitmap = thumbnail.asImageBitmap(), contentDescription = "Slika zadatka", modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit)
@@ -633,7 +637,17 @@ fun StickyNoteApp(
                 title = { Text("Novi zadatak") },
                 text = {
                     Column {
-                        OutlinedTextField(taskTitle, { taskTitle = it }, label = { Text("Što treba napraviti?") }, singleLine = true)
+                        Text("Dodaj više zadataka odjednom — svaki novi red postaje zaseban zadatak.", style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = taskTitle,
+                            onValueChange = { taskTitle = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 110.dp, max = 220.dp),
+                            label = { Text("Zadaci") },
+                            placeholder = { Text("Npr. kupiti kruh\\nNazvati servis\\nPlatiti račun") },
+                            minLines = 3,
+                            maxLines = 8
+                        )
                         Spacer(Modifier.height(12.dp))
                         Text(if (taskReminderAt == null) "Bez podsjetnika" else "Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(taskReminderAt!!)))
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -661,11 +675,15 @@ fun StickyNoteApp(
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        val title = taskTitle.trim()
-                        if (title.isNotEmpty()) {
-                            val task = TodoTask(System.currentTimeMillis(), title, false, taskReminderAt, taskImageUri)
-                            val updated = tasks + task; tasks = updated; saveTasks(context, updated)
-                            task.reminderAt?.let { scheduleReminder(context, task) }
+                        val titles = taskTitle.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                        if (titles.isNotEmpty()) {
+                            val added = titles.mapIndexed { index, title ->
+                                TodoTask(System.currentTimeMillis() + index, title, false, taskReminderAt, taskImageUri)
+                            }
+                            val updated = tasks + added
+                            tasks = updated
+                            saveTasks(context, updated)
+                            added.forEach { task -> task.reminderAt?.let { scheduleReminder(context, task) } }
                         }
                         showAddTask = false
                     }) { Text("Spremi") }
@@ -767,34 +785,14 @@ fun StickyNoteApp(
                         }
 
                         Column(
-                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+                            Modifier.fillMaxWidth()
+                                .heightIn(max = 260.dp)
+                                .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
                         ) {
-                            Text("Kategorija", style = MaterialTheme.typography.labelLarge)
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                categories.filter { it != "Sve" }.forEach { category ->
-                                    FilterChip(
-                                        selected = cat == category,
-                                        onClick = { cat = category },
-                                        label = { Text(category) }
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text("Boja bilješke", style = MaterialTheme.typography.labelLarge)
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                listOf(0xFF252525L, 0xFF5A3D31L, 0xFF5B4B1FL, 0xFF3E5739L, 0xFF304B63L, 0xFF563E63L, 0xFF633C4AL).forEach { color ->
-                                    Surface(
-                                        modifier = Modifier.size(32.dp).clickable { noteColor = color },
-                                        shape = androidx.compose.foundation.shape.CircleShape,
-                                        color = Color(color),
-                                        border = if (noteColor == color) androidx.compose.foundation.BorderStroke(2.dp, Color.White) else null
-                                    ) {}
-                                }
-                            }
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Text("Podsjetnik", style = MaterialTheme.typography.labelLarge)
+                                Spacer(Modifier.weight(1f))
                                 TextButton(onClick = {
                                     val now = java.util.Calendar.getInstance()
                                     DatePickerDialog(context, { _, year, month, day ->
@@ -807,15 +805,40 @@ fun StickyNoteApp(
                                             noteReminderAt = chosen.timeInMillis
                                         }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
                                     }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
-                                }) { Text(if (noteReminderAt == null) "Dodaj podsjetnik" else "Promijeni podsjetnik") }
-                                TextButton(onClick = { noteReminderAt = null }) { Text("Ukloni") }
+                                }) { Text(if (noteReminderAt == null) "＋ Dodaj" else "Promijeni") }
+                                if (noteReminderAt != null) TextButton(onClick = { noteReminderAt = null }) { Text("Ukloni") }
                             }
                             noteReminderAt?.let { at ->
                                 Text(
-                                    "Podsjetnik: " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)),
-                                    style = MaterialTheme.typography.bodySmall
+                                    java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
+                            Spacer(Modifier.height(4.dp))
+                            Text("Kategorija", style = MaterialTheme.typography.labelLarge)
+                            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(categories.filter { it != "Sve" }) { category ->
+                                    FilterChip(
+                                        selected = cat == category,
+                                        onClick = { cat = category },
+                                        label = { Text(category) }
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text("Boja bilješke", style = MaterialTheme.typography.labelLarge)
+                            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(listOf(0xFF252525L, 0xFF5A3D31L, 0xFF5B4B1FL, 0xFF3E5739L, 0xFF304B63L, 0xFF563E63L, 0xFF633C4AL)) { color ->
+                                    Surface(
+                                        modifier = Modifier.size(36.dp).clickable { noteColor = color },
+                                        shape = androidx.compose.foundation.shape.CircleShape,
+                                        color = Color(color),
+                                        border = if (noteColor == color) androidx.compose.foundation.BorderStroke(2.dp, Color.White) else null
+                                    ) {}
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
                         }
                     }
                 }
