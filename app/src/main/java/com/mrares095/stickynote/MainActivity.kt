@@ -427,26 +427,33 @@ fun StickyNoteApp(
     }
 
     fun deleteNote(note: Note) {
+        cancelNoteReminder(context, note.id)
         val now = System.currentTimeMillis()
         persistNotes(notes.map { if (it.id == note.id) it.copy(trashed = true, updatedAt = now) else it })
     }
 
     fun restoreNote(note: Note) {
         val now = System.currentTimeMillis()
-        persistNotes(notes.map {
+        val restored = notes.map {
             if (it.id == note.id) it.copy(
                 category = if (it.category == "🗑 Otpad" || it.category == "Sve") "Osobno" else it.category,
                 trashed = false,
                 updatedAt = now
             ) else it
-        })
+        }
+        persistNotes(restored)
+        restored.firstOrNull { it.id == note.id }?.let { restoredNote ->
+            restoredNote.reminderAt?.let { scheduleNoteReminder(context, restoredNote) }
+        }
     }
 
     fun permanentlyDeleteNote(note: Note) {
+        cancelNoteReminder(context, note.id)
         persistNotes(notes.filterNot { it.id == note.id })
     }
 
     fun emptyTrash() {
+        notes.filter { it.trashed }.forEach { cancelNoteReminder(context, it.id) }
         persistNotes(notes.filterNot { it.trashed })
     }
 
