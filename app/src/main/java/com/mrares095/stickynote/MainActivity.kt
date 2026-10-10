@@ -905,7 +905,7 @@ fun StickyNoteApp(
                             Spacer(Modifier.height(4.dp))
                             Text("Boja bilješke", style = MaterialTheme.typography.labelLarge)
                             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(listOf(0xFF252525L, 0xFF5A3D31L, 0xFF5B4B1FL, 0xFF3E5739L, 0xFF304B63L, 0xFF563E63L, 0xFF633C4AL)) { color ->
+                                items(listOf(0xFF353535L, 0xFF8B453AL, 0xFF8B641FL, 0xFF567B38L, 0xFF276A75L, 0xFF315B91L, 0xFF65439AL, 0xFF93456CL, 0xFF7D573CL, 0xFF5E6D36L, 0xFF355E4BL, 0xFF5B526FL)) { color ->
                                     Surface(
                                         modifier = Modifier.size(36.dp).clickable { noteColor = color },
                                         shape = androidx.compose.foundation.shape.CircleShape,
@@ -941,6 +941,13 @@ fun StickyNoteApp(
                                         contentScale = ContentScale.Fit
                                     )
                                 }
+                                TextButton(onClick = {
+                                    try {
+                                        val attachmentUri = Uri.parse(uri)
+                                        val mimeType = context.contentResolver.getType(attachmentUri) ?: "*/*"
+                                        context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(attachmentUri, mimeType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                                    } catch (_: Exception) { }
+                                }) { Text("Otvori privitak") }
                                 Text(
                                     "Privitak je spremljen na ovom uređaju; prijenos privitaka na Google Drive i druge uređaje još nije aktiviran.",
                                     style = MaterialTheme.typography.bodySmall,
