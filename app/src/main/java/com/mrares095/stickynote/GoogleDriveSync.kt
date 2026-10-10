@@ -8,7 +8,8 @@ import java.net.URLEncoder
 
 data class DriveSyncState(
     val notes: List<Note>,
-    val categories: List<String>
+    val categories: List<String>,
+    val deletedNoteIds: Set<Long> = emptySet()
 )
 
 object GoogleDriveSync {
@@ -62,13 +63,19 @@ object GoogleDriveSync {
         val categories = List(categoriesJson.length()) { categoriesJson.getString(it) }
             .ifEmpty { listOf("Sve", "Osobno", "Recepti") }
 
-        return DriveSyncState(notes, categories)
+        val deletedJson = root.optJSONArray("deletedNoteIds") ?: JSONArray()
+        val deletedNoteIds = (0 until deletedJson.length()).mapNotNull { index ->
+            deletedJson.optLong(index).takeIf { it > 0L }
+        }.toSet()
+
+        return DriveSyncState(notes, categories, deletedNoteIds)
     }
 
     fun uploadState(
         accessToken: String,
         notes: List<Note>,
-        categories: List<String>
+        categories: List<String>,
+        deletedNoteIds: Set<Long> = emptySet()
     ) {
         val root = JSONObject()
         val notesJson = JSONArray()
@@ -93,6 +100,9 @@ object GoogleDriveSync {
         root.put("updatedAt", System.currentTimeMillis())
         root.put("notes", notesJson)
         root.put("categories", categoriesJson)
+        root.put("deletedNoteIds", JSONArray().apply {
+            deletedNoteIds.filter { it > 0L }.sorted().forEach { put(it) }
+        })
 
         // With drive.file, query files created/opened by this app rather than appDataFolder.
         val query = URLEncoder.encode(
