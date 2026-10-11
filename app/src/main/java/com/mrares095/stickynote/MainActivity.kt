@@ -703,8 +703,9 @@ fun StickyNoteApp(
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
                 if (showTasks) {
-                    val todoTabIndex = categories.size + todoLists.indexOfFirst { it.id == selectedTodoListId }.coerceAtLeast(0)
-                    ScrollableTabRow(selectedTabIndex = todoTabIndex.coerceAtLeast(0)) {
+                    val todoTabIndex = categories.indexOf(selected).coerceIn(0, (categories.size - 1).coerceAtLeast(0))
+                    // The To-do screen only shows category tabs and a + tab; a list index here can exceed the tab count and crash Compose.
+                    ScrollableTabRow(selectedTabIndex = todoTabIndex) {
                         categories.forEach { category ->
                             Tab(selected = false, onClick = {
                                 selected = category
