@@ -883,6 +883,9 @@ fun StickyNoteApp(
                     if (trashOnly && notes.any { it.trashed }) {
                         TextButton(onClick = { confirmEmptyTrash = true }) { Text("Isprazni otpad") }
                     }
+                    TextButton(onClick = { archiveOnly = !archiveOnly; trashOnly = false }) {
+                        Text(if (archiveOnly) "Arhiva (povratak)" else "Arhiva")
+                    }
                 }
 
                 val categoryNotes = when {
@@ -965,8 +968,12 @@ fun StickyNoteApp(
                                     if (trashOnly) {
                                         TextButton(onClick = { restoreNote(note) }) { Text("Vrati") }
                                         TextButton(onClick = { confirmPermanentDelete = note }) { Text("Trajno obriši") }
+                                    } else if (archiveOnly) {
+                                        TextButton(onClick = { persistNotes(notes.map { if (it.id == note.id) it.copy(archived = false, updatedAt = System.currentTimeMillis()) else it }) }) { Text("Vrati") }
+                                        TextButton(onClick = { deleteNote(note) }) { Text("Obriši") }
                                     } else {
                                         TextButton(onClick = { editing = note }) { Text("Uredi") }
+                                        TextButton(onClick = { persistNotes(notes.map { if (it.id == note.id) it.copy(archived = true, updatedAt = System.currentTimeMillis()) else it }) }) { Text("Arhiviraj") }
                                         TextButton(onClick = { deleteNote(note) }) { Text("Obriši") }
                                     }
                                 }
