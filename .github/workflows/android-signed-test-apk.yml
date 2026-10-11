@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/notebook-ui-server-ready
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
