@@ -172,7 +172,7 @@ function ownTask(userId, taskId) {
   return db.prepare("SELECT * FROM tasks WHERE id=? AND user_id=? AND deleted_at IS NULL").get(taskId,userId);
 }
 function textField(value, max, field) {
-  if (typeof value !== "string") throw Object.assign(new Error(`\${field} must be text`),{statusCode:400});
+  if (typeof value !== "string") throw Object.assign(new Error(`${field} must be text`),{statusCode:400});
   return value.trim().slice(0,max);
 }
 function categoryForUser(userId, categoryId) {
