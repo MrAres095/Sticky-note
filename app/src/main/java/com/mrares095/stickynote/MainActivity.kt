@@ -1080,6 +1080,19 @@ fun StickyNoteApp(
                             label = { Text("Naziv liste") },
                             singleLine = true
                         )
+                        if (!currentList.archived) {
+                            TextButton(onClick = {
+                                todoLists = todoLists.map { if (it.id == currentList.id) it.copy(archived = true) else it }
+                                saveTodoLists(context, todoLists)
+                                editingTodoList = null
+                            }) { Text("Arhiviraj listu") }
+                        } else {
+                            TextButton(onClick = {
+                                todoLists = todoLists.map { if (it.id == currentList.id) it.copy(archived = false) else it }
+                                saveTodoLists(context, todoLists)
+                                editingTodoList = null
+                            }) { Text("Vrati iz arhive") }
+                        }
                         Spacer(Modifier.height(12.dp))
                         Text("Premjesti u kategoriju", style = MaterialTheme.typography.labelLarge)
                         androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
