@@ -894,7 +894,10 @@ fun StickyNoteApp(
                     if (undoNotesSnapshot != null || undoTasksSnapshot != null) {
                         TextButton(onClick = {
                             undoNotesSnapshot?.let { persistNotes(it) }
-                            undoTasksSnapshot?.let { tasks = it; saveTasks(context, it) }
+                            undoTasksSnapshot?.let { snapshot ->
+                                tasks = snapshot
+                                saveTasks(context, snapshot)
+                            }
                             undoNotesSnapshot = null
                             undoTasksSnapshot = null
                         }) { Text("↶ Poništi") }
