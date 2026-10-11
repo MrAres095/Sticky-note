@@ -781,7 +781,6 @@ fun StickyNoteApp(
                                 }
                             )
                         }
-                        }
                         if (activeTasks.isEmpty()) {
                             item { Text("Dodaj prvu stavku popisa.", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
