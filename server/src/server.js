@@ -159,7 +159,7 @@ app.get("/api/v1/sync", async request => {
   const since=Number(request.query?.since ?? 0);
   if (!Number.isSafeInteger(since)||since<0) throw Object.assign(new Error("Invalid cursor"),{statusCode:400});
   const changes=db.prepare("SELECT cursor,entity_type,entity_id,operation,changed_at FROM change_log WHERE user_id=? AND cursor>? ORDER BY cursor LIMIT 1000").all(request.auth.userId,since);
-  return {changes,nextCursor:changes.length?changes[changes.length-1].cursor:since,hasMore:changes.length===1000};
+  return {changes:changes.map(change=>({cursor:change.cursor,type:change.entity_type,id:change.entity_id,operation:change.operation,changedAt:change.changed_at})),nextCursor:changes.length?changes[changes.length-1].cursor:since,hasMore:changes.length===1000};
 });
 app.setNotFoundHandler((_request,reply)=>reply.code(404).send({error:"not_found",message:"API ruta nije pronađena."}));
 app.setErrorHandler((error,request,reply)=>{request.log.error(error);if(!reply.sent)reply.code(error.statusCode&&error.statusCode<500?error.statusCode:500).send({error:"internal_error",message:"Došlo je do greške na serveru."});});
