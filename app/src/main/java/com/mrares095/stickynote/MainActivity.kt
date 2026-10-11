@@ -1365,7 +1365,7 @@ fun StickyNoteApp(
                     updatedAt = System.currentTimeMillis()
                 )
                 persistNotes((notes.filterNot { it.id == note.id }) + saved)
-                if (noteReminderAt != null && noteReminderAt > System.currentTimeMillis()) scheduleNoteReminder(context, saved)
+                if (noteReminderAt != null && noteReminderAt!! > System.currentTimeMillis()) scheduleNoteReminder(context, saved)
                 else cancelNoteReminder(context, note.id)
             }
 
@@ -1431,7 +1431,7 @@ fun StickyNoteApp(
                         attachmentUri = noteAttachmentUri, updatedAt = System.currentTimeMillis()
                     )
                     persistNotes((notes.filterNot { it.id == note.id }) + saved)
-                    if (noteReminderAt != null && noteReminderAt > System.currentTimeMillis()) scheduleNoteReminder(context, saved)
+                    if (noteReminderAt != null && noteReminderAt!! > System.currentTimeMillis()) scheduleNoteReminder(context, saved)
                     else cancelNoteReminder(context, note.id)
                     editing = null
                 },
@@ -1455,7 +1455,7 @@ fun StickyNoteApp(
                                     attachmentUri = noteAttachmentUri, updatedAt = System.currentTimeMillis()
                                 )
                                 persistNotes((notes.filterNot { it.id == note.id }) + saved)
-                                if (noteReminderAt != null && noteReminderAt > System.currentTimeMillis()) scheduleNoteReminder(context, saved)
+                                if (noteReminderAt != null && noteReminderAt!! > System.currentTimeMillis()) scheduleNoteReminder(context, saved)
                                 else cancelNoteReminder(context, note.id)
                                 editing = null
                             }) { Text("Natrag") }
