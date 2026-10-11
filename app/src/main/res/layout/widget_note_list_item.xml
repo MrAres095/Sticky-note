@@ -13,15 +13,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textStyle="bold"
-        android:textSize="15sp"
-        android:maxLines="1"
+        android:textSize="18sp"
+        android:maxLines="2"
         android:ellipsize="end" />
     <TextView
         android:id="@+id/widget_item_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textSize="13sp"
-        android:maxLines="3"
+        android:textSize="16sp"
+        android:maxLines="5"
         android:ellipsize="end"
-        android:paddingTop="3dp" />
+        android:paddingTop="5dp" />
 </LinearLayout>
