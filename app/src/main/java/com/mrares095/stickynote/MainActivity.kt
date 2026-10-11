@@ -761,26 +761,11 @@ fun StickyNoteApp(
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
                         item {
                             Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = inlineTaskDraft,
-                                onValueChange = { inlineTaskDraft = it },
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                placeholder = { Text("Upiši zadatak… novi red = novi zadatak") },
-                                minLines = 2,
-                                maxLines = 5,
-                                trailingIcon = {
-                                    TextButton(onClick = {
-                                        val titles = inlineTaskDraft.lines().map { it.trim() }.filter { it.isNotEmpty() }
-                                        if (titles.isNotEmpty()) {
-                                            val firstId = maxOf(System.currentTimeMillis(), (tasks.maxOfOrNull { it.id } ?: 0L) + 1L)
-                                            val added = titles.mapIndexed { index, title -> TodoTask(firstId + index, title, false, null, null, selectedTodoListId) }
-                                            val updated = tasks + added
-                                            tasks = updated
-                                            saveTasks(context, updated)
-                                            inlineTaskDraft = ""
-                                        }
-                                    }) { Text("Dodaj") }
-                                }
+                            Text(
+                                "Piši zadatke izravno u retke, kao u bilješci. Svaka promjena automatski se sprema.",
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         if (activeTasks.isEmpty()) {
@@ -800,10 +785,23 @@ fun StickyNoteApp(
                                         if (checked) cancelReminder(context, task.id) else task.reminderAt?.let { scheduleReminder(context, task) }
                                     })
                                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                                        Text(
-                                            task.title,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                                        OutlinedTextField(
+                                            value = task.title,
+                                            onValueChange = { newTitle ->
+                                                val updated = tasks.map { if (it.id == task.id) it.copy(title = newTitle) else it }
+                                                tasks = updated
+                                                saveTasks(context, updated)
+                                                if (task.reminderAt != null) {
+                                                    cancelReminder(context, task.id)
+                                                    updated.firstOrNull { it.id == task.id }?.let { scheduleReminder(context, it) }
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                                color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                                            ),
+                                            placeholder = { Text("Napiši zadatak…") },
+                                            singleLine = true
                                         )
                                         task.reminderAt?.let { at ->
                                             Text("◷ " + java.text.SimpleDateFormat("dd.MM.yyyy. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
@@ -834,14 +832,14 @@ fun StickyNoteApp(
                         item {
                             TextButton(
                                 onClick = {
-                                    taskTitle = ""
-                                    taskReminderAt = null
-                                    taskImageUri = null
-                                    showAddTask = true
+                                    val newId = maxOf(System.currentTimeMillis(), (tasks.maxOfOrNull { it.id } ?: 0L) + 1L)
+                                    val updated = tasks + TodoTask(newId, "", false, null, null, selectedTodoListId)
+                                    tasks = updated
+                                    saveTasks(context, updated)
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                             ) {
-                                Text("＋    Stavka popisa", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("＋    Dodaj novi redak", color = MaterialTheme.colorScheme.primary)
                             }
                             Surface(
                                 modifier = Modifier.padding(top = 12.dp),
