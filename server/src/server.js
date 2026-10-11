@@ -5,7 +5,7 @@ import Database from "better-sqlite3";
 import argon2 from "argon2";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 
 const host = process.env.HOST || "0.0.0.0";
 const port = Number(process.env.PORT || 8080);
@@ -109,7 +109,7 @@ function getOrCreateCategory(userId,name,color=null) {
   logChange(userId,"category",categoryId);
   return categoryId;
 }
-const takeoutId = note => String(note?.id || note?.noteId || note?.title + "|" + (note?.textContent || note?.text || "")).slice(0,500);
+const takeoutId = note => String(note?.id || note?.noteId || createHash("sha256").update(JSON.stringify({title:note?.title||"",text:note?.textContent||note?.text||"",list:note?.listContent||note?.todos||[],created:note?.createdTimestampUsec||note?.createdTime||"",edited:note?.userEditedTimestampUsec||note?.updatedTime||""})).digest("hex"));
 const takeoutText = note => [note?.textContent || note?.text || "", ...(Array.isArray(note?.listContent) ? note.listContent.map(x => typeof x === "string" ? x : x?.text || "") : [])].filter(Boolean).join("\n");
 app.post("/api/v1/import/keep/takeout", async (request,reply) => {
   const userId = request.auth.userId;
@@ -157,7 +157,7 @@ app.post("/api/v1/import/keep/takeout", async (request,reply) => {
 
 app.get("/api/v1/sync", async request => {
   const since=Number(request.query?.since ?? 0);
-  if (!Number.isSafeInteger(since)||since<0) return sendError({code:()=>({send:()=>{}})},400,"invalid_cursor","Parametar since nije valjan.");
+  if (!Number.isSafeInteger(since)||since<0) throw Object.assign(new Error("Invalid cursor"),{statusCode:400});
   const changes=db.prepare("SELECT cursor,entity_type,entity_id,operation,changed_at FROM change_log WHERE user_id=? AND cursor>? ORDER BY cursor LIMIT 1000").all(request.auth.userId,since);
   return {changes,nextCursor:changes.length?changes[changes.length-1].cursor:since,hasMore:changes.length===1000};
 });
