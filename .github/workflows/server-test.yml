@@ -1,0 +1,33 @@
+name: Server API tests
+
+on:
+  push:
+    branches: [main, feature/server-api-foundation]
+    paths:
+      - "server/**"
+      - ".github/workflows/server-test.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - ".github/workflows/server-test.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install dependencies
+        run: npm install
+      - name: Syntax check
+        run: node --check src/server.js
+      - name: Run API integration tests
+        run: npm test
