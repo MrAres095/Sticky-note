@@ -576,6 +576,7 @@ fun StickyNoteApp(
     var showRenameTaskList by remember { mutableStateOf(false) }
     var taskListTitle by remember { mutableStateOf("") }
     var taskListTitleDraft by remember { mutableStateOf("") }
+    var inlineTaskDraft by remember { mutableStateOf("") }
     var showAddTask by remember { mutableStateOf(false) }
     var showCreateChooser by remember { mutableStateOf(false) }
     var taskTitle by remember { mutableStateOf("") }
