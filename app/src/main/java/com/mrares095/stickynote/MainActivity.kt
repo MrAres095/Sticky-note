@@ -550,6 +550,8 @@ fun StickyNoteApp(
     var trashOnly by remember { mutableStateOf(false) }
     var archiveOnly by remember { mutableStateOf(false) }
     var confirmPermanentDelete by remember { mutableStateOf<Note?>(null) }
+    var undoNotesSnapshot by remember { mutableStateOf<List<Note>?>(null) }
+    var undoTasksSnapshot by remember { mutableStateOf<List<TodoTask>?>(null) }
     var confirmEmptyTrash by remember { mutableStateOf(false) }
     var confirmDeleteCategory by remember { mutableStateOf<String?>(null) }
     var showTasks by remember { mutableStateOf(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("show_tasks_screen", false)) }
@@ -631,6 +633,7 @@ fun StickyNoteApp(
     }
 
     fun deleteNote(note: Note) {
+        undoNotesSnapshot = notes
         cancelNoteReminder(context, note.id)
         val now = System.currentTimeMillis()
         persistNotes(notes.map { if (it.id == note.id) it.copy(trashed = true, updatedAt = now) else it })
@@ -740,6 +743,7 @@ fun StickyNoteApp(
                         if (activeTasks.any { it.completed }) {
                             TextButton(onClick = {
                                 activeTasks.filter { it.completed }.forEach { cancelReminder(context, it.id) }
+                                undoTasksSnapshot = tasks
                                 val removedIds = activeTasks.filter { it.completed }.map { it.id }.toSet()
                                 val remaining = tasks.filterNot { it.id in removedIds }
                                 tasks = remaining
@@ -806,6 +810,7 @@ fun StickyNoteApp(
                                         }
                                     }
                                     TextButton(onClick = {
+                                        undoTasksSnapshot = tasks
                                         cancelReminder(context, task.id)
                                         val updated = tasks.filterNot { it.id == task.id }
                                         tasks = updated
@@ -885,6 +890,13 @@ fun StickyNoteApp(
                     }
                     TextButton(onClick = { archiveOnly = !archiveOnly; trashOnly = false }) {
                         Text(if (archiveOnly) "Arhiva (povratak)" else "Arhiva")
+                    }                    if (undoNotesSnapshot != null || undoTasksSnapshot != null) {
+                        TextButton(onClick = {
+                            undoNotesSnapshot?.let { persistNotes(it) }
+                            undoTasksSnapshot?.let { tasks = it; saveTasks(context, it) }
+                            undoNotesSnapshot = null
+                            undoTasksSnapshot = null
+                        }) { Text("↶ Poništi") }
                     }
                 }
 
