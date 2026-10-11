@@ -14,7 +14,7 @@ class NoteListWidgetService : RemoteViewsService() {
         private val context: android.content.Context,
         private val widgetId: Int
     ) : RemoteViewsFactory {
-        private data class Item(val id: Long, val title: String, val text: String, val isTask: Boolean = false, val isTodoList: Boolean = false)
+        private data class Item(val id: Long, val title: String, val text: String, val isTask: Boolean = false, val isTodoList: Boolean = false, val todoListId: String? = null)
         private var items: List<Item> = emptyList()
 
         override fun onCreate() = Unit
@@ -64,7 +64,7 @@ class NoteListWidgetService : RemoteViewsService() {
                             if (tab == "Sve" || category == tab) {
                                 val listId = o.optString("id").ifBlank { "default" }
                                 val title = o.optString("title").ifBlank { "To-do lista" }
-                                loaded += Item(listId.hashCode().toLong(), "☑  " + title, "", isTodoList = true)
+                                loaded += Item(listId.hashCode().toLong(), "☑  " + title, "", isTodoList = true, todoListId = listId)
                                 var taskCount = 0
                                 for (j in 0 until taskArray.length()) {
                                     val task = taskArray.optJSONObject(j) ?: continue
@@ -96,7 +96,7 @@ class NoteListWidgetService : RemoteViewsService() {
             return RemoteViews(context.packageName, R.layout.widget_note_list_item).apply {
                 setTextViewText(R.id.widget_item_title, item.title)
                 setTextViewText(R.id.widget_item_text, item.text)
-                setOnClickFillInIntent(R.id.widget_item_root, Intent().apply { if (item.isTodoList) putExtra("open_todo_list_id", item.title) else if (!item.isTask) putExtra("open_note_id", item.id) })
+                setOnClickFillInIntent(R.id.widget_item_root, Intent().apply { if (item.isTodoList) putExtra("open_todo_list_id", item.todoListId) else if (!item.isTask) putExtra("open_note_id", item.id) })
             }
         }
         override fun getLoadingView(): RemoteViews? = null
