@@ -14,7 +14,7 @@ class NoteListWidgetService : RemoteViewsService() {
         private val context: android.content.Context,
         private val widgetId: Int
     ) : RemoteViewsFactory {
-        private data class Item(val id: Long, val title: String, val text: String, val isTask: Boolean = false)
+        private data class Item(val id: Long, val title: String, val text: String, val isTask: Boolean = false, val isTodoList: Boolean = false)
         private var items: List<Item> = emptyList()
 
         override fun onCreate() = Unit
@@ -50,6 +50,29 @@ class NoteListWidgetService : RemoteViewsService() {
                             }
                         }
                     }
+                    // Show To-do list cards alongside notes when the widget is set to a category.
+                    val rawLists = prefs.getString("todo_lists", null)
+                    if (!rawLists.isNullOrBlank()) {
+                        val lists = JSONArray(rawLists)
+                        for (i in 0 until lists.length()) {
+                            val o = lists.optJSONObject(i) ?: continue
+                            val category = o.optString("category", "Osobno")
+                            if (tab == "Sve" || category == tab) {
+                                val listId = o.optString("id")
+                                val title = o.optString("title").ifBlank { "To-do lista" }
+                                val rawTasks = prefs.getString(TASKS, null)
+                                var remaining = 0
+                                if (!rawTasks.isNullOrBlank()) {
+                                    val taskArray = JSONArray(rawTasks)
+                                    for (j in 0 until taskArray.length()) {
+                                        val task = taskArray.optJSONObject(j) ?: continue
+                                        if (task.optString("listId").ifBlank { "default" } == listId && !task.optBoolean("completed", false)) remaining++
+                                    }
+                                }
+                                loaded += Item(listId.hashCode().toLong(), "☑  " + title, "$remaining preostalo", isTodoList = true)
+                            }
+                        }
+                    }
                 }
             } catch (_: Exception) { }
             items = loaded
@@ -61,7 +84,7 @@ class NoteListWidgetService : RemoteViewsService() {
             return RemoteViews(context.packageName, R.layout.widget_note_list_item).apply {
                 setTextViewText(R.id.widget_item_title, item.title)
                 setTextViewText(R.id.widget_item_text, item.text)
-                setOnClickFillInIntent(R.id.widget_item_root, Intent().apply { if (!item.isTask) putExtra("open_note_id", item.id) })
+                setOnClickFillInIntent(R.id.widget_item_root, Intent().apply { if (item.isTodoList) putExtra("open_todo_list_id", item.title) else if (!item.isTask) putExtra("open_note_id", item.id) })
             }
         }
         override fun getLoadingView(): RemoteViews? = null
