@@ -549,6 +549,7 @@ fun StickyNoteApp(
     var pinnedOnly by remember { mutableStateOf(false) }
     var trashOnly by remember { mutableStateOf(false) }
     var archiveOnly by remember { mutableStateOf(false) }
+    var showMoreFilters by remember { mutableStateOf(false) }
     var confirmPermanentDelete by remember { mutableStateOf<Note?>(null) }
     var undoNotesSnapshot by remember { mutableStateOf<List<Note>?>(null) }
     var undoTasksSnapshot by remember { mutableStateOf<List<TodoTask>?>(null) }
@@ -875,42 +876,51 @@ fun StickyNoteApp(
 
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
-                    Row {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         TextButton(onClick = { favoritesOnly = !favoritesOnly }) {
                             Text(if (favoritesOnly) "★ Favoriti" else "☆ Svi")
                         }
                         TextButton(onClick = { pinnedOnly = !pinnedOnly }) {
                             Text(if (pinnedOnly) "📌 Prikvačeno" else "📌 Sve")
                         }
-                        TextButton(onClick = { trashOnly = !trashOnly }) {
-                            Text(if (trashOnly) "🗑 Otpad" else "🗑")
-                        }
-                    }
-                    if (selected != "Sve") {
-                        TextButton(onClick = {
-                            showRenameTab = selected
-                            renameText = selected
-                        }) { Text("Preimenuj") }
-                        TextButton(onClick = { confirmDeleteCategory = selected }) { Text("Obriši") }
-                    }
-                    if (trashOnly && notes.any { it.trashed }) {
-                        TextButton(onClick = { confirmEmptyTrash = true }) { Text("Isprazni otpad") }
-                    }
-                    TextButton(onClick = { archiveOnly = !archiveOnly; trashOnly = false }) {
-                        Text(if (archiveOnly) "Arhiva (povratak)" else "Arhiva")
-                    }
-                    if (undoNotesSnapshot != null || undoTasksSnapshot != null) {
-                        TextButton(onClick = {
-                            undoNotesSnapshot?.let { persistNotes(it) }
-                            undoTasksSnapshot?.let { snapshot ->
-                                tasks = snapshot
-                                saveTasks(context, snapshot)
+                        Box {
+                            TextButton(onClick = { showMoreFilters = true }) { Text("⋮ Više") }
+                            DropdownMenu(expanded = showMoreFilters, onDismissRequest = { showMoreFilters = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(if (trashOnly) "Izlaz iz otpada" else "🗑 Otpad") },
+                                    onClick = { trashOnly = !trashOnly; archiveOnly = false; showMoreFilters = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (archiveOnly) "Povratak iz arhive" else "Arhiva") },
+                                    onClick = { archiveOnly = !archiveOnly; trashOnly = false; showMoreFilters = false }
+                                )
+                                if (trashOnly && notes.any { it.trashed }) {
+                                    DropdownMenuItem(text = { Text("Isprazni otpad") }, onClick = {
+                                        confirmEmptyTrash = true; showMoreFilters = false
+                                    })
+                                }
+                                if (selected != "Sve") {
+                                    DropdownMenuItem(text = { Text("Preimenuj tab") }, onClick = {
+                                        showRenameTab = selected; renameText = selected; showMoreFilters = false
+                                    })
+                                    DropdownMenuItem(text = { Text("Obriši tab") }, onClick = {
+                                        confirmDeleteCategory = selected; showMoreFilters = false
+                                    })
+                                }
+                                if (undoNotesSnapshot != null || undoTasksSnapshot != null) {
+                                    DropdownMenuItem(text = { Text("↶ Poništi") }, onClick = {
+                                        undoNotesSnapshot?.let { persistNotes(it) }
+                                        undoTasksSnapshot?.let { snapshot -> tasks = snapshot; saveTasks(context, snapshot) }
+                                        undoNotesSnapshot = null
+                                        undoTasksSnapshot = null
+                                        showMoreFilters = false
+                                    })
+                                }
                             }
-                            undoNotesSnapshot = null
-                            undoTasksSnapshot = null
-                        }) { Text("↶ Poništi") }
+                        }
                     }
                 }
 
@@ -1129,10 +1139,14 @@ fun StickyNoteApp(
                             }) { Text("Vrati iz arhive") }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("Premjesti u kategoriju", style = MaterialTheme.typography.labelLarge)
-                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(categories.filter { it != "Sve" }) { category ->
-                                FilterChip(selected = editTodoListCategory == category, onClick = { editTodoListCategory = category }, label = { Text(category) })
+                        Text("Premjesti cijelu listu u tab", style = MaterialTheme.typography.labelLarge)
+                        categories.filter { it != "Sve" }.forEach { category ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { editTodoListCategory = category }.padding(vertical = 3.dp),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = editTodoListCategory == category, onClick = { editTodoListCategory = category })
+                                Text(category)
                             }
                         }
                     }
