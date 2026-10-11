@@ -53,7 +53,7 @@ data class TodoTask(
     val listId: String = "default"
 )
 
-data class TodoList(val id: String, val title: String)
+data class TodoList(val id: String, val title: String, val category: String = "Osobno")
 
 const val TASKS = "todo_tasks"
 private const val TODO_LISTS = "todo_lists"
@@ -64,7 +64,7 @@ private fun loadTodoLists(context: Context): List<TodoList> {
     val raw = prefs.getString(TODO_LISTS, null)
     if (raw.isNullOrBlank()) {
         val legacyTitle = prefs.getString("todo_list_title", null)?.trim().orEmpty()
-        val initial = listOf(TodoList(DEFAULT_TODO_LIST_ID, legacyTitle.ifBlank { "Moj prvi popis" }))
+        val initial = listOf(TodoList(DEFAULT_TODO_LIST_ID, legacyTitle.ifBlank { "Moj prvi popis" }, prefs.getString("selected", "Osobno")?.takeIf { it != "Sve" } ?: "Osobno"))
         saveTodoLists(context, initial)
         return initial
     }
@@ -72,7 +72,7 @@ private fun loadTodoLists(context: Context): List<TodoList> {
         val a = JSONArray(raw)
         val result = List(a.length()) { i ->
             val o = a.getJSONObject(i)
-            TodoList(o.optString("id").ifBlank { DEFAULT_TODO_LIST_ID }, o.optString("title").ifBlank { "To-do lista" })
+            TodoList(o.optString("id").ifBlank { DEFAULT_TODO_LIST_ID }, o.optString("title").ifBlank { "To-do lista" }, o.optString("category").ifBlank { "Osobno" })
         }.distinctBy { it.id }
         result.ifEmpty { listOf(TodoList(DEFAULT_TODO_LIST_ID, "Moj prvi popis")) }
     } catch (_: Exception) {
@@ -82,7 +82,7 @@ private fun loadTodoLists(context: Context): List<TodoList> {
 
 private fun saveTodoLists(context: Context, lists: List<TodoList>) {
     val a = JSONArray()
-    lists.forEach { a.put(JSONObject().put("id", it.id).put("title", it.title)) }
+    lists.forEach { a.put(JSONObject().put("id", it.id).put("title", it.title).put("category", it.category)) }
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(TODO_LISTS, a.toString()).apply()
     NoteListWidgetProvider.updateAll(context)
 }
@@ -561,6 +561,7 @@ fun StickyNoteApp(
     var showTodoListPicker by remember { mutableStateOf(false) }
     var showCreateTodoList by remember { mutableStateOf(false) }
     var newTodoListTitle by remember { mutableStateOf("") }
+    var newTodoListCategory by remember { mutableStateOf(if (selected == "Sve") categories.firstOrNull { it != "Sve" } ?: "Osobno" else selected) }
     var activeTodoList by remember { mutableStateOf<TodoList?>(null) }
     val activeTasks = tasks.filter { it.listId == selectedTodoListId }
     var showRenameTaskList by remember { mutableStateOf(false) }
@@ -712,16 +713,9 @@ fun StickyNoteApp(
                                     .putBoolean("show_tasks_screen", false).apply()
                             }, text = { Text(category) })
                         }
-                        todoLists.forEach { list ->
-                            Tab(selected = list.id == selectedTodoListId, onClick = {
-                                selectedTodoListId = list.id
-                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                                    .putString("selected_todo_list_id", list.id)
-                                    .putBoolean("show_tasks_screen", true).apply()
-                            }, text = { Text("☑ " + list.title) })
-                        }
                         Tab(selected = false, onClick = {
                             newTodoListTitle = ""
+                            newTodoListCategory = if (selected == "Sve") categories.firstOrNull { it != "Sve" } ?: "Osobno" else selected
                             showCreateTodoList = true
                         }, text = { Text("+") })
                     }
@@ -846,16 +840,7 @@ fun StickyNoteApp(
                                 .putBoolean("show_tasks_screen", false).apply()
                         }, text = { Text(category) })
                     }
-                    todoLists.forEach { list ->
-                        Tab(selected = false, onClick = {
-                            selectedTodoListId = list.id
-                            showTasks = true
-                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                                .putString("selected_todo_list_id", list.id)
-                                .putBoolean("show_tasks_screen", true).apply()
-                        }, text = { Text("☑ " + list.title) })
-                    }
-                    Tab(selected = false, onClick = { showAddTab = true }, text = { Text("+") })
+                        Tab(selected = false, onClick = { showAddTab = true }, text = { Text("+") })
                 }
 
                 OutlinedTextField(
@@ -898,6 +883,31 @@ fun StickyNoteApp(
                     trashOnly -> notes.filter { it.trashed }
                     selected == "Sve" -> notes.filter { !it.trashed }
                     else -> notes.filter { !it.trashed && it.category == selected }
+                }
+                val categoryTodoLists = if (trashOnly) emptyList() else todoLists.filter { selected == "Sve" || it.category == selected }
+                if (categoryTodoLists.isNotEmpty()) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        Text("To-do liste", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        categoryTodoLists.forEach { list ->
+                            val listTasks = tasks.filter { it.listId == list.id }
+                            Card(modifier = Modifier.fillMaxWidth().padding(top = 6.dp).clickable {
+                                selectedTodoListId = list.id
+                                showTasks = true
+                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                                    .putString("selected_todo_list_id", list.id).putBoolean("show_tasks_screen", true).apply()
+                            }) {
+                                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    Text("☑", style = MaterialTheme.typography.titleLarge)
+                                    Spacer(Modifier.width(10.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(list.title, style = MaterialTheme.typography.titleSmall)
+                                        Text(listTasks.count { !it.completed }.toString() + " preostalo · " + listTasks.count { it.completed }.toString() + " dovršeno", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Text("›", style = MaterialTheme.typography.titleLarge)
+                                }
+                            }
+                        }
+                    }
                 }
                 val q = search.trim().lowercase()
                 val searched = if (q.isEmpty()) categoryNotes else categoryNotes.filter {
@@ -969,6 +979,7 @@ fun StickyNoteApp(
                                 showCreateChooser = false
                                 // A new To-do action creates a separate named list.
                                 newTodoListTitle = ""
+                            newTodoListCategory = if (selected == "Sve") categories.firstOrNull { it != "Sve" } ?: "Osobno" else selected
                                 showCreateTodoList = true
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -1031,6 +1042,7 @@ fun StickyNoteApp(
                     TextButton(onClick = {
                         showTodoListPicker = false
                         newTodoListTitle = ""
+                            newTodoListCategory = if (selected == "Sve") categories.firstOrNull { it != "Sve" } ?: "Osobno" else selected
                         showCreateTodoList = true
                     }) { Text("＋ Nova lista") }
                 },
@@ -1043,26 +1055,38 @@ fun StickyNoteApp(
                 onDismissRequest = { showCreateTodoList = false },
                 title = { Text("Nova To-do lista") },
                 text = {
-                    OutlinedTextField(
-                        value = newTodoListTitle,
-                        onValueChange = { newTodoListTitle = it },
-                        label = { Text("Naziv liste") },
-                        placeholder = { Text("Npr. Kupovina, Posao, Kuća") },
-                        singleLine = true
-                    )
+                    Column {
+                        OutlinedTextField(
+                            value = newTodoListTitle,
+                            onValueChange = { newTodoListTitle = it },
+                            label = { Text("Naziv liste") },
+                            placeholder = { Text("Npr. Kupovina, Posao, Kuća") },
+                            singleLine = true
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text("Smjesti listu u kategoriju", style = MaterialTheme.typography.labelLarge)
+                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(categories.filter { it != "Sve" }) { category ->
+                                FilterChip(selected = newTodoListCategory == category, onClick = { newTodoListCategory = category }, label = { Text(category) })
+                            }
+                        }
+                    }
                 },
                 confirmButton = {
                     TextButton(onClick = {
                         val title = newTodoListTitle.trim()
                         if (title.isNotEmpty()) {
                             val id = "todo_" + java.util.UUID.randomUUID().toString()
-                            val list = TodoList(id, title)
+                            val targetCategory = if (newTodoListCategory == "Sve") categories.firstOrNull { it != "Sve" } ?: "Osobno" else newTodoListCategory
+                            val list = TodoList(id, title, targetCategory)
                             todoLists = todoLists + list
                             saveTodoLists(context, todoLists)
                             selectedTodoListId = id
+                            selected = targetCategory
+                            showTasks = false
                             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                                 .putString("selected_todo_list_id", id)
-                                .putBoolean("show_tasks_screen", true).apply()
+                                .putBoolean("show_tasks_screen", false).apply()
                             tasks = tasks
                             taskTitle = ""
                             taskReminderAt = null
