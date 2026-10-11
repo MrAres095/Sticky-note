@@ -44,6 +44,7 @@ import com.google.android.gms.common.api.Scope
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.concurrent.thread
+import kotlinx.coroutines.delay
 
 data class TodoTask(
     val id: Long,
@@ -353,6 +354,7 @@ private fun saveNotes(context: Context, values: List<Note>) {
 
 class MainActivity : ComponentActivity() {
     private var pendingOpenNoteId: Long? by mutableStateOf(null)
+    private var pendingOpenTodoListId: String? by mutableStateOf(null)
     private var driveAccessToken: String? by mutableStateOf(null)
     private var driveStatusMessage by mutableStateOf<String?>(null)
     private var syncAfterAuthorization = false
@@ -375,6 +377,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         pendingOpenNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
+        pendingOpenTodoListId = intent.getStringExtra("open_todo_list_id")
         setContent {
             StickyNoteApp(
                 context = this,
@@ -385,7 +388,9 @@ class MainActivity : ComponentActivity() {
                 onSyncDrive = { authorizeDrive(true) },
                 onCheckUpdate = { checkForUpdate() },
                 openNoteId = pendingOpenNoteId,
-                onOpenNoteHandled = { pendingOpenNoteId = null }
+                onOpenNoteHandled = { pendingOpenNoteId = null },
+                openTodoListId = pendingOpenTodoListId,
+                onOpenTodoListHandled = { pendingOpenTodoListId = null }
             )
         }
     }
@@ -394,6 +399,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingOpenNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
+        pendingOpenTodoListId = intent.getStringExtra("open_todo_list_id")
     }
 
     private fun authorizeDrive(syncAfter: Boolean) {
@@ -535,7 +541,9 @@ fun StickyNoteApp(
     onSyncDrive: () -> Unit,
     onCheckUpdate: () -> Unit,
     openNoteId: Long? = null,
-    onOpenNoteHandled: () -> Unit = {}
+    onOpenNoteHandled: () -> Unit = {},
+    openTodoListId: String? = null,
+    onOpenTodoListHandled: () -> Unit = {}
 ) {
     var categories by remember { mutableStateOf(loadCategories(context)) }
     var selected by remember { mutableStateOf(categories.first()) }
@@ -631,6 +639,20 @@ fun StickyNoteApp(
                 editing = target
                 onOpenNoteHandled()
             }
+        }
+    }
+
+    LaunchedEffect(openTodoListId, todoLists) {
+        val requestedId = openTodoListId ?: return@LaunchedEffect
+        val target = todoLists.firstOrNull { it.id == requestedId }
+        if (target != null) {
+            selectedTodoListId = target.id
+            selected = target.category
+            showTasks = true
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString("selected_todo_list_id", target.id)
+                .putBoolean("show_tasks_screen", true).apply()
+            onOpenTodoListHandled()
         }
     }
 
@@ -1328,6 +1350,25 @@ fun StickyNoteApp(
             var noteColor by remember(note.id) { mutableLongStateOf(note.color) }
             var noteReminderAt by remember(note.id) { mutableStateOf(note.reminderAt) }
             var noteAttachmentUri by remember(note.id) { mutableStateOf(note.attachmentUri) }
+
+            LaunchedEffect(note.id, title, body, cat, noteColor, noteReminderAt, noteAttachmentUri) {
+                // Debounced local autosave: edits survive app dismissal or an accidental close.
+                delay(500)
+                val saved = note.copy(
+                    title = title,
+                    text = body,
+                    category = if (cat == "🗑 Otpad" || cat == "Sve") "Osobno" else cat,
+                    color = noteColor,
+                    trashed = false,
+                    reminderAt = noteReminderAt,
+                    attachmentUri = noteAttachmentUri,
+                    updatedAt = System.currentTimeMillis()
+                )
+                persistNotes((notes.filterNot { it.id == note.id }) + saved)
+                if (noteReminderAt != null && noteReminderAt > System.currentTimeMillis()) scheduleNoteReminder(context, saved)
+                else cancelNoteReminder(context, note.id)
+            }
+
             BackHandler(enabled = true) {
                 val saved = note.copy(
                     title = title,
@@ -1382,7 +1423,18 @@ fun StickyNoteApp(
             }
 
             androidx.compose.ui.window.Dialog(
-                onDismissRequest = { editing = null },
+                onDismissRequest = {
+                    val saved = note.copy(
+                        title = title, text = body,
+                        category = if (cat == "🗑 Otpad" || cat == "Sve") "Osobno" else cat,
+                        color = noteColor, trashed = false, reminderAt = noteReminderAt,
+                        attachmentUri = noteAttachmentUri, updatedAt = System.currentTimeMillis()
+                    )
+                    persistNotes((notes.filterNot { it.id == note.id }) + saved)
+                    if (noteReminderAt != null && noteReminderAt > System.currentTimeMillis()) scheduleNoteReminder(context, saved)
+                    else cancelNoteReminder(context, note.id)
+                    editing = null
+                },
                 properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
             ) {
                 Surface(
@@ -1395,7 +1447,18 @@ fun StickyNoteApp(
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            TextButton(onClick = { editing = null }) { Text("Natrag") }
+                            TextButton(onClick = {
+                                val saved = note.copy(
+                                    title = title, text = body,
+                                    category = if (cat == "🗑 Otpad" || cat == "Sve") "Osobno" else cat,
+                                    color = noteColor, trashed = false, reminderAt = noteReminderAt,
+                                    attachmentUri = noteAttachmentUri, updatedAt = System.currentTimeMillis()
+                                )
+                                persistNotes((notes.filterNot { it.id == note.id }) + saved)
+                                if (noteReminderAt != null && noteReminderAt > System.currentTimeMillis()) scheduleNoteReminder(context, saved)
+                                else cancelNoteReminder(context, note.id)
+                                editing = null
+                            }) { Text("Natrag") }
                             Text(
                                 if (note.title.isBlank()) "Nova bilješka" else "Bilješka",
                                 style = MaterialTheme.typography.titleLarge
