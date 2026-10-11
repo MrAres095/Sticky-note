@@ -1,31 +1,45 @@
 # Sticky & Note shared backend
 
-This folder is the first server-side milestone for the shared Sticky & Note service.
+Node.js 22 + Fastify API, SQLite on persistent storage, Argon2id account passwords, and opaque bearer sessions.
 
-## Runtime
+## Current API foundation
 
-- Node.js 22
-- Fastify HTTP API
-- SQLite database stored in a persistent mounted directory
-- Argon2 password hashing and opaque bearer sessions
-- API prefix: `/api/v1`
+- `GET /api/v1/health` — database readiness check
+- `POST /api/v1/auth/register` — create an account (password 12–128 characters)
+- `POST /api/v1/auth/login`, `GET /api/v1/auth/me`, `POST /api/v1/auth/logout`
+- `POST /api/v1/import/keep/takeout` — import Keep note JSON records into the signed-in account
+- `GET /api/v1/sync?since=0` — initial change cursor endpoint
 
-## Initial scope
+## Google Keep import
 
-1. Health/readiness endpoint
-2. Account registration and login
-3. Device/session revocation
-4. Private-by-account notes and categories
-5. To-do lists and tasks
-6. Schema migrations and automated API tests
-7. Incremental sync and deletion tombstones
+Google Keep's official Takeout export is the initial supported migration path. The importer accepts JSON in the shape `{ "notes": [ ...Keep JSON records... ] }` or a JSON array of note records. For now, extract the Takeout archive and submit the Keep JSON records in that format; raw ZIP upload and direct Google account authorization are not enabled yet.
 
-The first deployment must be private until TLS, authentication, database backups, and migration/restore tests are verified. Cloudflare Tunnel should route `notes.mandocloud.uk` to the local service; do not expose the database port publicly.
+Example (after login, use the returned bearer token):
 
-## Deployment principles
+```sh
+curl -X POST https://notes.mandocloud.uk/api/v1/import/keep/takeout \
+  -H "Authorization: Bearer YOUR_SESSION_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @keep-notes.json
+```
 
-- Keep secrets in environment variables, never in Git.
-- Mount `/data` persistently; never store the database inside the disposable container layer.
+The importer preserves note text, titles, colors, archived/trashed/pinned state where available, labels (as categories), and checklist tasks/check states. It uses per-account import fingerprints so repeated imports skip previously imported records. It never deletes existing app data. Review the import summary and sample notes before relying on it as your only copy.
+
+## Local run
+
+Requires Node.js 22. Copy `.env.example` to `.env`, set a long random `SESSION_PEPPER`, then run:
+
+```sh
+npm install
+npm start
+```
+
+The default data directory is `./data`; Docker mounts persistent storage at `/data`.
+
+## Deployment safety
+
+- Keep secrets in environment variables; never commit `.env`.
+- Keep the service private until TLS, authentication, backups, and restore tests are verified.
+- Cloudflare Tunnel should route `notes.mandocloud.uk` to the local service; do not expose SQLite or the database port publicly.
 - Require HTTPS for remote access.
-- Use account-scoped database queries for every user-owned resource.
 - Do not enable Android sync until API tests and a real-device end-to-end test pass.
