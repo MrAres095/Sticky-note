@@ -759,18 +759,28 @@ fun StickyNoteApp(
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
                         item {
                             Spacer(Modifier.height(8.dp))
-                            Row(
-                                Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                            ) {
-                                Spacer(Modifier.weight(1f))
-                                TextButton(onClick = {
-                                    taskTitle = ""
-                                    taskReminderAt = null
-                                    taskImageUri = null
-                                    showAddTask = true
-                                }) { Text("＋ Stavka popisa") }
-                            }
+                            OutlinedTextField(
+                                value = inlineTaskDraft,
+                                onValueChange = { inlineTaskDraft = it },
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                placeholder = { Text("Upiši zadatak… novi red = novi zadatak") },
+                                minLines = 2,
+                                maxLines = 5,
+                                trailingIcon = {
+                                    TextButton(onClick = {
+                                        val titles = inlineTaskDraft.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                                        if (titles.isNotEmpty()) {
+                                            val firstId = maxOf(System.currentTimeMillis(), (tasks.maxOfOrNull { it.id } ?: 0L) + 1L)
+                                            val added = titles.mapIndexed { index, title -> TodoTask(firstId + index, title, false, null, null, selectedTodoListId) }
+                                            val updated = tasks + added
+                                            tasks = updated
+                                            saveTasks(context, updated)
+                                            inlineTaskDraft = ""
+                                        }
+                                    }) { Text("Dodaj") }
+                                }
+                            )
+                        }
                         }
                         if (activeTasks.isEmpty()) {
                             item { Text("Dodaj prvu stavku popisa.", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
