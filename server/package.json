@@ -1,0 +1,19 @@
+{
+  "name": "sticky-note-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared backend for Sticky & Note clients",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/helmet": "^13.0.1",
+    "argon2": "^0.41.1",
+    "better-sqlite3": "^11.7.0",
+    "fastify": "^5.2.1"
+  }
+}
