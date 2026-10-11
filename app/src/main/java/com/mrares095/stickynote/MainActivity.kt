@@ -923,28 +923,37 @@ fun StickyNoteApp(
                     items(categoryTodoLists, key = { "todo:" + it.id }) { list ->
                         val listTasks = tasks.filter { it.listId == list.id }
                         Card(
-                            Modifier.padding(6.dp).fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF34333A))
+                            Modifier.padding(6.dp).fillMaxWidth().clickable {
+                                selectedTodoListId = list.id
+                                showTasks = true
+                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                                    .putString("selected_todo_list_id", list.id).putBoolean("show_tasks_screen", true).apply()
+                            },
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF252525))
                         ) {
                             Column(Modifier.padding(12.dp)) {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                    Text("☑", style = MaterialTheme.typography.titleLarge)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(list.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 2)
+                                    Text(list.title.ifBlank { "Bez naslova" }, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 2)
                                     TextButton(onClick = {
                                         editTodoListTitle = list.title
                                         editTodoListCategory = list.category
                                         editingTodoList = list
                                     }, contentPadding = PaddingValues(2.dp)) { Text("⋮") }
                                 }
+                                listTasks.take(4).forEach { task ->
+                                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                        Checkbox(checked = task.completed, onCheckedChange = { checked ->
+                                            val updated = tasks.map { if (it.id == task.id) it.copy(completed = checked) else it }
+                                            tasks = updated
+                                            saveTasks(context, updated)
+                                        }, modifier = Modifier.size(34.dp))
+                                        Text(task.title, modifier = Modifier.weight(1f), maxLines = 1,
+                                            color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                                            style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                                if (listTasks.size > 4) Text("… i još ${listTasks.size - 4}", style = MaterialTheme.typography.bodySmall)
                                 Text("${listTasks.count { !it.completed }} preostalo · ${listTasks.count { it.completed }} dovršeno", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.height(8.dp))
-                                TextButton(onClick = {
-                                    selectedTodoListId = list.id
-                                    showTasks = true
-                                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                                        .putString("selected_todo_list_id", list.id).putBoolean("show_tasks_screen", true).apply()
-                                }, modifier = Modifier.fillMaxWidth()) { Text("Otvori listu  ›") }
                             }
                         }
                     }
