@@ -17,6 +17,7 @@ import android.content.Context
 import android.content.IntentSender
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -578,6 +579,11 @@ fun StickyNoteApp(
     var taskListTitle by remember { mutableStateOf("") }
     var taskListTitleDraft by remember { mutableStateOf("") }
     var inlineTaskDraft by remember { mutableStateOf("") }
+    BackHandler(enabled = showTasks && editing == null) {
+        showTasks = false
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("show_tasks_screen", false).apply()
+    }
     var showAddTask by remember { mutableStateOf(false) }
     var showCreateChooser by remember { mutableStateOf(false) }
     var taskTitle by remember { mutableStateOf("") }
@@ -1315,6 +1321,22 @@ fun StickyNoteApp(
             var noteColor by remember(note.id) { mutableLongStateOf(note.color) }
             var noteReminderAt by remember(note.id) { mutableStateOf(note.reminderAt) }
             var noteAttachmentUri by remember(note.id) { mutableStateOf(note.attachmentUri) }
+            BackHandler(enabled = true) {
+                val saved = note.copy(
+                    title = title,
+                    text = body,
+                    category = if (cat == "🗑 Otpad" || cat == "Sve") "Osobno" else cat,
+                    color = noteColor,
+                    trashed = false,
+                    reminderAt = noteReminderAt,
+                    attachmentUri = noteAttachmentUri,
+                    updatedAt = System.currentTimeMillis()
+                )
+                persistNotes((notes.filterNot { it.id == note.id }) + saved)
+                if (noteReminderAt != null && noteReminderAt!! > System.currentTimeMillis()) scheduleNoteReminder(context, saved)
+                else cancelNoteReminder(context, note.id)
+                editing = null
+            }
             val noteAttachmentPicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 if (uri != null) {
                     try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
