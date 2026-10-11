@@ -796,7 +796,7 @@ fun StickyNoteApp(
                                                     updated.firstOrNull { it.id == task.id }?.let { scheduleReminder(context, it) }
                                                 }
                                             },
-                                            modifier = Modifier.weight(1f),
+                                            modifier = Modifier.fillMaxWidth(),
                                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                                 color = if (task.completed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                                             ),
