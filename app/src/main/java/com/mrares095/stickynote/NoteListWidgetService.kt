@@ -50,26 +50,38 @@ class NoteListWidgetService : RemoteViewsService() {
                             }
                         }
                     }
-                    // Show To-do list cards alongside notes when the widget is set to a category.
+                    // Show each To-do list and its actual task rows in the chosen tab,
+                    // rather than displaying only a remaining-task count.
                     val rawLists = prefs.getString("todo_lists", null)
+                    val rawTasks = prefs.getString(TASKS, null)
+                    val taskArray = if (!rawTasks.isNullOrBlank()) JSONArray(rawTasks) else JSONArray()
                     if (!rawLists.isNullOrBlank()) {
                         val lists = JSONArray(rawLists)
                         for (i in 0 until lists.length()) {
                             val o = lists.optJSONObject(i) ?: continue
+                            if (o.optBoolean("archived", false)) continue
                             val category = o.optString("category", "Osobno")
                             if (tab == "Sve" || category == tab) {
-                                val listId = o.optString("id")
+                                val listId = o.optString("id").ifBlank { "default" }
                                 val title = o.optString("title").ifBlank { "To-do lista" }
-                                val rawTasks = prefs.getString(TASKS, null)
-                                var remaining = 0
-                                if (!rawTasks.isNullOrBlank()) {
-                                    val taskArray = JSONArray(rawTasks)
-                                    for (j in 0 until taskArray.length()) {
-                                        val task = taskArray.optJSONObject(j) ?: continue
-                                        if (task.optString("listId").ifBlank { "default" } == listId && !task.optBoolean("completed", false)) remaining++
-                                    }
+                                loaded += Item(listId.hashCode().toLong(), "☑  " + title, "", isTodoList = true)
+                                var taskCount = 0
+                                for (j in 0 until taskArray.length()) {
+                                    val task = taskArray.optJSONObject(j) ?: continue
+                                    if (task.optString("listId").ifBlank { "default" } != listId) continue
+                                    taskCount++
+                                    val completed = task.optBoolean("completed", false)
+                                    val taskTitle = task.optString("title").trim().ifBlank { "Prazan zadatak" }
+                                    loaded += Item(
+                                        task.optLong("id", (listId + j).hashCode().toLong()),
+                                        (if (completed) "☑  " else "□  ") + taskTitle,
+                                        if (completed) "Dovršeno" else "",
+                                        isTask = true
+                                    )
                                 }
-                                loaded += Item(listId.hashCode().toLong(), "☑  " + title, "$remaining preostalo", isTodoList = true)
+                                if (taskCount == 0) {
+                                    loaded += Item((listId + "_empty").hashCode().toLong(), "  ＋ Još nema zadataka", "", isTask = true)
+                                }
                             }
                         }
                     }
