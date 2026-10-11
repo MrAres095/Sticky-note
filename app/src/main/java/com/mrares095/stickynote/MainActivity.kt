@@ -1185,10 +1185,17 @@ fun StickyNoteApp(
                             singleLine = true
                         )
                         Spacer(Modifier.height(10.dp))
-                        Text("Smjesti listu u kategoriju", style = MaterialTheme.typography.labelLarge)
-                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(categories.filter { it != "Sve" }) { category ->
-                                FilterChip(selected = newTodoListCategory == category, onClick = { newTodoListCategory = category }, label = { Text(category) })
+                        Text("Smjesti listu u tab", style = MaterialTheme.typography.labelLarge)
+                        categories.filter { it != "Sve" }.forEach { category ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { newTodoListCategory = category }.padding(vertical = 2.dp),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = newTodoListCategory == category,
+                                    onClick = { newTodoListCategory = category }
+                                )
+                                Text(category)
                             }
                         }
                     }
