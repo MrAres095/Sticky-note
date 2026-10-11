@@ -161,6 +161,178 @@ app.get("/api/v1/sync", async request => {
   const changes=db.prepare("SELECT cursor,entity_type,entity_id,operation,changed_at FROM change_log WHERE user_id=? AND cursor>? ORDER BY cursor LIMIT 1000").all(request.auth.userId,since);
   return {changes:changes.map(change=>({cursor:change.cursor,type:change.entity_type,id:change.entity_id,operation:change.operation,changedAt:change.changed_at})),nextCursor:changes.length?changes[changes.length-1].cursor:since,hasMore:changes.length===1000};
 });
+
+function ownNote(userId, noteId) {
+  return db.prepare("SELECT * FROM notes WHERE id=? AND user_id=? AND deleted_at IS NULL").get(noteId,userId);
+}
+function ownList(userId, listId) {
+  return db.prepare("SELECT * FROM todo_lists WHERE id=? AND user_id=? AND deleted_at IS NULL").get(listId,userId);
+}
+function ownTask(userId, taskId) {
+  return db.prepare("SELECT * FROM tasks WHERE id=? AND user_id=? AND deleted_at IS NULL").get(taskId,userId);
+}
+function textField(value, max, field) {
+  if (typeof value !== "string") throw Object.assign(new Error(`\${field} must be text`),{statusCode:400});
+  return value.trim().slice(0,max);
+}
+function categoryForUser(userId, categoryId) {
+  if (categoryId == null || categoryId === "") return null;
+  if (typeof categoryId !== "string") throw Object.assign(new Error("Invalid categoryId"),{statusCode:400});
+  const category = db.prepare("SELECT id FROM categories WHERE id=? AND user_id=? AND deleted_at IS NULL").get(categoryId,userId);
+  if (!category) throw Object.assign(new Error("Category not found"),{statusCode:400});
+  return category.id;
+}
+const boolField = (value, fallback=0) => value === undefined ? fallback : (value === true || value === 1 ? 1 : value === false || value === 0 ? 0 : null);
+
+// Categories
+app.get("/api/v1/categories", async request => ({
+  categories: db.prepare("SELECT id,name,color,updated_at AS updatedAt FROM categories WHERE user_id=? AND deleted_at IS NULL ORDER BY name COLLATE NOCASE").all(request.auth.userId)
+}));
+app.post("/api/v1/categories", async (request,reply) => {
+  const userId=request.auth.userId, name=textField(request.body?.name,80,"name");
+  if (!name) return sendError(reply,400,"invalid_name","Naziv kategorije je obavezan.");
+  const categoryId=id(), at=now();
+  try { db.prepare("INSERT INTO categories(id,user_id,name,color,updated_at) VALUES(?,?,?,?,?)").run(categoryId,userId,name,typeof request.body?.color==="string"?request.body.color.slice(0,32):null,at); }
+  catch(e) { if (String(e.code).includes("CONSTRAINT")) return sendError(reply,409,"category_exists","Kategorija već postoji."); throw e; }
+  logChange(userId,"category",categoryId);
+  return reply.code(201).send({category:{id:categoryId,name,color:request.body?.color??null,updatedAt:at}});
+});
+app.patch("/api/v1/categories/:id", async (request,reply) => {
+  const userId=request.auth.userId, old=db.prepare("SELECT * FROM categories WHERE id=? AND user_id=? AND deleted_at IS NULL").get(request.params.id,userId);
+  if (!old) return sendError(reply,404,"not_found","Kategorija nije pronađena.");
+  const name=request.body?.name===undefined?old.name:textField(request.body.name,80,"name");
+  if (!name) return sendError(reply,400,"invalid_name","Naziv kategorije je obavezan.");
+  const color=request.body?.color===undefined?old.color:(request.body.color===null?null:String(request.body.color).slice(0,32));
+  const at=now();
+  try { db.prepare("UPDATE categories SET name=?,color=?,updated_at=? WHERE id=? AND user_id=?").run(name,color,at,old.id,userId); }
+  catch(e) { if (String(e.code).includes("CONSTRAINT")) return sendError(reply,409,"category_exists","Kategorija već postoji."); throw e; }
+  logChange(userId,"category",old.id);
+  return {category:{id:old.id,name,color,updatedAt:at}};
+});
+app.delete("/api/v1/categories/:id", async (request,reply) => {
+  const userId=request.auth.userId, old=db.prepare("SELECT id FROM categories WHERE id=? AND user_id=? AND deleted_at IS NULL").get(request.params.id,userId);
+  if (!old) return sendError(reply,404,"not_found","Kategorija nije pronađena.");
+  const at=now(); db.prepare("UPDATE categories SET deleted_at=?,updated_at=? WHERE id=? AND user_id=?").run(at,at,old.id,userId);
+  db.prepare("UPDATE notes SET category_id=NULL,updated_at=? WHERE user_id=? AND category_id=?").run(at,userId,old.id);
+  db.prepare("UPDATE todo_lists SET category_id=NULL,updated_at=? WHERE user_id=? AND category_id=?").run(at,userId,old.id);
+  logChange(userId,"category",old.id,"delete");
+  return reply.code(204).send();
+});
+
+// Notes
+app.get("/api/v1/notes", async request => {
+  const query=request.query||{}, includeArchived=query.archived==="true", includeTrashed=query.trashed==="true";
+  const notes=db.prepare("SELECT id,title,text,category_id AS categoryId,color,favorite,pinned,archived,trashed,reminder_at AS reminderAt,attachment_json AS attachments,created_at AS createdAt,updated_at AS updatedAt FROM notes WHERE user_id=? AND deleted_at IS NULL AND archived=? AND trashed=? ORDER BY pinned DESC,updated_at DESC")
+    .all(request.auth.userId,includeArchived?1:0,includeTrashed?1:0).map(n=>({...n,favorite:!!n.favorite,pinned:!!n.pinned,archived:!!n.archived,trashed:!!n.trashed,attachments:JSON.parse(n.attachments)}));
+  return {notes};
+});
+app.post("/api/v1/notes", async (request,reply) => {
+  const userId=request.auth.userId, body=request.body||{}, noteId=id(), at=now();
+  const title=body.title===undefined?"":textField(body.title,500,"title");
+  const text=body.text===undefined?"":textField(body.text,100000,"text");
+  const categoryId=categoryForUser(userId,body.categoryId);
+  const color=body.color==null?null:String(body.color).slice(0,32);
+  const favorite=boolField(body.favorite), pinned=boolField(body.pinned), archived=boolField(body.archived), trashed=boolField(body.trashed);
+  if ([favorite,pinned,archived,trashed].includes(null)) return sendError(reply,400,"invalid_boolean","Status mora biti true ili false.");
+  const reminderAt=body.reminderAt==null?null:Number(body.reminderAt);
+  if (reminderAt!==null&&!Number.isSafeInteger(reminderAt)) return sendError(reply,400,"invalid_reminder","Neispravan podsjetnik.");
+  db.prepare("INSERT INTO notes(id,user_id,title,text,category_id,color,favorite,pinned,archived,trashed,reminder_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)").run(noteId,userId,title,text,categoryId,color,favorite,pinned,archived,trashed,reminderAt,at,at);
+  logChange(userId,"note",noteId);
+  return reply.code(201).send({note:{id:noteId,title,text,categoryId,color,favorite:!!favorite,pinned:!!pinned,archived:!!archived,trashed:!!trashed,reminderAt,attachments:[],createdAt:at,updatedAt:at}});
+});
+app.get("/api/v1/notes/:id", async (request,reply) => {
+  const n=ownNote(request.auth.userId,request.params.id);
+  if (!n) return sendError(reply,404,"not_found","Bilješka nije pronađena.");
+  return {note:{id:n.id,title:n.title,text:n.text,categoryId:n.category_id,color:n.color,favorite:!!n.favorite,pinned:!!n.pinned,archived:!!n.archived,trashed:!!n.trashed,reminderAt:n.reminder_at,attachments:JSON.parse(n.attachment_json),createdAt:n.created_at,updatedAt:n.updated_at}};
+});
+app.patch("/api/v1/notes/:id", async (request,reply) => {
+  const userId=request.auth.userId, n=ownNote(userId,request.params.id);
+  if (!n) return sendError(reply,404,"not_found","Bilješka nije pronađena.");
+  const b=request.body||{}, title=b.title===undefined?n.title:textField(b.title,500,"title"), text=b.text===undefined?n.text:textField(b.text,100000,"text");
+  const categoryId=b.categoryId===undefined?n.category_id:categoryForUser(userId,b.categoryId);
+  const color=b.color===undefined?n.color:(b.color===null?null:String(b.color).slice(0,32));
+  const favorite=boolField(b.favorite,n.favorite), pinned=boolField(b.pinned,n.pinned), archived=boolField(b.archived,n.archived), trashed=boolField(b.trashed,n.trashed);
+  if ([favorite,pinned,archived,trashed].includes(null)) return sendError(reply,400,"invalid_boolean","Status mora biti true ili false.");
+  const reminderAt=b.reminderAt===undefined?n.reminder_at:(b.reminderAt===null?null:Number(b.reminderAt));
+  if (reminderAt!==null&&!Number.isSafeInteger(reminderAt)) return sendError(reply,400,"invalid_reminder","Neispravan podsjetnik.");
+  const at=now();
+  db.prepare("UPDATE notes SET title=?,text=?,category_id=?,color=?,favorite=?,pinned=?,archived=?,trashed=?,reminder_at=?,updated_at=? WHERE id=? AND user_id=?").run(title,text,categoryId,color,favorite,pinned,archived,trashed,reminderAt,at,n.id,userId);
+  logChange(userId,"note",n.id);
+  return {note:{id:n.id,title,text,categoryId,color,favorite:!!favorite,pinned:!!pinned,archived:!!archived,trashed:!!trashed,reminderAt,attachments:JSON.parse(n.attachment_json),createdAt:n.created_at,updatedAt:at}};
+});
+app.delete("/api/v1/notes/:id", async (request,reply) => {
+  const userId=request.auth.userId,n=ownNote(userId,request.params.id);
+  if (!n) return sendError(reply,404,"not_found","Bilješka nije pronađena.");
+  const at=now(); db.prepare("UPDATE notes SET deleted_at=?,updated_at=? WHERE id=? AND user_id=?").run(at,at,n.id,userId); logChange(userId,"note",n.id,"delete");
+  return reply.code(204).send();
+});
+
+// To-do lists and tasks
+app.get("/api/v1/todos", async request => {
+  const archived=request.query?.archived==="true";
+  const lists=db.prepare("SELECT id,title,category_id AS categoryId,archived,created_at AS createdAt,updated_at AS updatedAt FROM todo_lists WHERE user_id=? AND deleted_at IS NULL AND archived=? ORDER BY updated_at DESC").all(request.auth.userId,archived?1:0);
+  return {lists:lists.map(list=>({...list,archived:!!list.archived,tasks:db.prepare("SELECT id,title,completed,position,reminder_at AS reminderAt,created_at AS createdAt,updated_at AS updatedAt FROM tasks WHERE user_id=? AND list_id=? AND deleted_at IS NULL ORDER BY position,created_at").all(request.auth.userId,list.id).map(task=>({...task,completed:!!task.completed}))}))};
+});
+app.post("/api/v1/todos", async (request,reply) => {
+  const userId=request.auth.userId,b=request.body||{}, listId=id(),at=now(),title=b.title===undefined?"":textField(b.title,500,"title"),categoryId=categoryForUser(userId,b.categoryId),archived=boolField(b.archived);
+  if (archived===null) return sendError(reply,400,"invalid_boolean","archived mora biti true ili false.");
+  db.prepare("INSERT INTO todo_lists(id,user_id,title,category_id,archived,created_at,updated_at) VALUES(?,?,?,?,?,?,?)").run(listId,userId,title,categoryId,archived,at,at);
+  logChange(userId,"todo_list",listId);
+  return reply.code(201).send({list:{id:listId,title,categoryId,archived:!!archived,createdAt:at,updatedAt:at,tasks:[]}});
+});
+app.patch("/api/v1/todos/:id", async (request,reply) => {
+  const userId=request.auth.userId,list=ownList(userId,request.params.id);
+  if (!list) return sendError(reply,404,"not_found","Todo lista nije pronađena.");
+  const b=request.body||{},title=b.title===undefined?list.title:textField(b.title,500,"title"),categoryId=b.categoryId===undefined?list.category_id:categoryForUser(userId,b.categoryId),archived=boolField(b.archived,list.archived);
+  if (archived===null) return sendError(reply,400,"invalid_boolean","archived mora biti true ili false.");
+  const at=now(); db.prepare("UPDATE todo_lists SET title=?,category_id=?,archived=?,updated_at=? WHERE id=? AND user_id=?").run(title,categoryId,archived,at,list.id,userId);
+  logChange(userId,"todo_list",list.id);
+  return {list:{id:list.id,title,categoryId,archived:!!archived,createdAt:list.created_at,updatedAt:at}};
+});
+app.delete("/api/v1/todos/:id", async (request,reply) => {
+  const userId=request.auth.userId,list=ownList(userId,request.params.id);
+  if (!list) return sendError(reply,404,"not_found","Todo lista nije pronađena.");
+  const at=now(); db.prepare("UPDATE todo_lists SET deleted_at=?,updated_at=? WHERE id=? AND user_id=?").run(at,at,list.id,userId);
+  db.prepare("UPDATE tasks SET deleted_at=?,updated_at=? WHERE user_id=? AND list_id=? AND deleted_at IS NULL").run(at,at,userId,list.id);
+  logChange(userId,"todo_list",list.id,"delete");
+  return reply.code(204).send();
+});
+app.post("/api/v1/todos/:id/tasks", async (request,reply) => {
+  const userId=request.auth.userId,list=ownList(userId,request.params.id);
+  if (!list) return sendError(reply,404,"not_found","Todo lista nije pronađena.");
+  const b=request.body||{},title=textField(b.title,2000,"title");
+  if (!title) return sendError(reply,400,"invalid_title","Naziv zadatka je obavezan.");
+  const taskId=id(),at=now(),position=Number.isSafeInteger(b.position)&&b.position>=0?b.position:(db.prepare("SELECT COALESCE(MAX(position),-1)+1 AS p FROM tasks WHERE user_id=? AND list_id=? AND deleted_at IS NULL").get(userId,list.id).p);
+  const reminderAt=b.reminderAt==null?null:Number(b.reminderAt);
+  if (reminderAt!==null&&!Number.isSafeInteger(reminderAt)) return sendError(reply,400,"invalid_reminder","Neispravan podsjetnik.");
+  db.prepare("INSERT INTO tasks(id,user_id,list_id,title,completed,reminder_at,position,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)").run(taskId,userId,list.id,title,0,reminderAt,position,at,at);
+  db.prepare("UPDATE todo_lists SET updated_at=? WHERE id=?").run(at,list.id);
+  logChange(userId,"task",taskId); logChange(userId,"todo_list",list.id);
+  return reply.code(201).send({task:{id:taskId,title,completed:false,position,reminderAt,createdAt:at,updatedAt:at,listId:list.id}});
+});
+app.patch("/api/v1/tasks/:id", async (request,reply) => {
+  const userId=request.auth.userId,task=ownTask(userId,request.params.id);
+  if (!task) return sendError(reply,404,"not_found","Zadatak nije pronađen.");
+  const b=request.body||{},title=b.title===undefined?task.title:textField(b.title,2000,"title"),completed=boolField(b.completed,task.completed);
+  if (completed===null) return sendError(reply,400,"invalid_boolean","completed mora biti true ili false.");
+  const reminderAt=b.reminderAt===undefined?task.reminder_at:(b.reminderAt===null?null:Number(b.reminderAt));
+  if (reminderAt!==null&&!Number.isSafeInteger(reminderAt)) return sendError(reply,400,"invalid_reminder","Neispravan podsjetnik.");
+  const position=b.position===undefined?task.position:Number(b.position);
+  if (!Number.isSafeInteger(position)||position<0) return sendError(reply,400,"invalid_position","Neispravan redoslijed.");
+  const at=now(); db.prepare("UPDATE tasks SET title=?,completed=?,reminder_at=?,position=?,updated_at=? WHERE id=? AND user_id=?").run(title,completed,reminderAt,position,at,task.id,userId);
+  db.prepare("UPDATE todo_lists SET updated_at=? WHERE id=?").run(at,task.list_id);
+  logChange(userId,"task",task.id); logChange(userId,"todo_list",task.list_id);
+  return {task:{id:task.id,title,completed:!!completed,position,reminderAt,createdAt:task.created_at,updatedAt:at,listId:task.list_id}};
+});
+app.delete("/api/v1/tasks/:id", async (request,reply) => {
+  const userId=request.auth.userId,task=ownTask(userId,request.params.id);
+  if (!task) return sendError(reply,404,"not_found","Zadatak nije pronađen.");
+  const at=now(); db.prepare("UPDATE tasks SET deleted_at=?,updated_at=? WHERE id=? AND user_id=?").run(at,at,task.id,userId);
+  db.prepare("UPDATE todo_lists SET updated_at=? WHERE id=?").run(at,task.list_id);
+  logChange(userId,"task",task.id,"delete"); logChange(userId,"todo_list",task.list_id);
+  return reply.code(204).send();
+});
+
 app.setNotFoundHandler((_request,reply)=>reply.code(404).send({error:"not_found",message:"API ruta nije pronađena."}));
 app.setErrorHandler((error,request,reply)=>{request.log.error(error);if(!reply.sent)reply.code(error.statusCode&&error.statusCode<500?error.statusCode:500).send({error:"internal_error",message:"Došlo je do greške na serveru."});});
 app.addHook("onClose",async()=>db.close());
