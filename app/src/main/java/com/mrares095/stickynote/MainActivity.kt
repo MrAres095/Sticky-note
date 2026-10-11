@@ -53,7 +53,7 @@ data class TodoTask(
     val listId: String = "default"
 )
 
-data class TodoList(val id: String, val title: String, val category: String = "Osobno")
+data class TodoList(val id: String, val title: String, val category: String = "Osobno", val archived: Boolean = false)
 
 const val TASKS = "todo_tasks"
 private const val TODO_LISTS = "todo_lists"
@@ -72,7 +72,7 @@ private fun loadTodoLists(context: Context): List<TodoList> {
         val a = JSONArray(raw)
         val result = List(a.length()) { i ->
             val o = a.getJSONObject(i)
-            TodoList(o.optString("id").ifBlank { DEFAULT_TODO_LIST_ID }, o.optString("title").ifBlank { "To-do lista" }, o.optString("category").ifBlank { "Osobno" })
+            TodoList(o.optString("id").ifBlank { DEFAULT_TODO_LIST_ID }, o.optString("title").ifBlank { "To-do lista" }, o.optString("category").ifBlank { "Osobno" }, o.optBoolean("archived", false))
         }.distinctBy { it.id }
         result.ifEmpty { listOf(TodoList(DEFAULT_TODO_LIST_ID, "Moj prvi popis")) }
     } catch (_: Exception) {
@@ -82,7 +82,7 @@ private fun loadTodoLists(context: Context): List<TodoList> {
 
 private fun saveTodoLists(context: Context, lists: List<TodoList>) {
     val a = JSONArray()
-    lists.forEach { a.put(JSONObject().put("id", it.id).put("title", it.title).put("category", it.category)) }
+    lists.forEach { a.put(JSONObject().put("id", it.id).put("title", it.title).put("category", it.category).put("archived", it.archived)) }
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(TODO_LISTS, a.toString()).apply()
     NoteListWidgetProvider.updateAll(context)
 }
@@ -198,7 +198,8 @@ data class Note(
     val updatedAt: Long = System.currentTimeMillis(),
     val trashed: Boolean = false,
     val reminderAt: Long? = null,
-    val attachmentUri: String? = null
+    val attachmentUri: String? = null,
+    val archived: Boolean = false
 )
 
 data class MergedDriveState(
@@ -294,7 +295,8 @@ private fun decodeNotes(raw: String): List<Note> {
             o.optLong("updatedAt", System.currentTimeMillis()),
             o.optBoolean("trashed", o.optString("category") == "🗑 Otpad"),
             o.optLong("reminderAt").takeIf { it > 0L },
-            o.optString("attachmentUri").takeIf { it.isNotBlank() && it != "null" }
+            o.optString("attachmentUri").takeIf { it.isNotBlank() && it != "null" },
+            o.optBoolean("archived", false)
         )
     }
 }
@@ -336,6 +338,7 @@ private fun saveNotes(context: Context, values: List<Note>) {
             put("trashed", n.trashed)
             put("reminderAt", n.reminderAt ?: 0L)
             put("attachmentUri", n.attachmentUri ?: "")
+            put("archived", n.archived)
         })
     }
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -545,6 +548,7 @@ fun StickyNoteApp(
     var favoritesOnly by remember { mutableStateOf(false) }
     var pinnedOnly by remember { mutableStateOf(false) }
     var trashOnly by remember { mutableStateOf(false) }
+    var archiveOnly by remember { mutableStateOf(false) }
     var confirmPermanentDelete by remember { mutableStateOf<Note?>(null) }
     var confirmEmptyTrash by remember { mutableStateOf(false) }
     var confirmDeleteCategory by remember { mutableStateOf<String?>(null) }
@@ -755,7 +759,6 @@ fun StickyNoteApp(
                                 Modifier.fillMaxWidth().padding(bottom = 8.dp),
                                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                             ) {
-                                Text("Stavke popisa", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(Modifier.weight(1f))
                                 TextButton(onClick = {
                                     taskTitle = ""
@@ -829,7 +832,6 @@ fun StickyNoteApp(
                                 shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
                                 color = Color(0xFF34333A)
                             ) {
-                                Text("Stvari", modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp), color = MaterialTheme.colorScheme.onSurface)
                             }
                             Spacer(Modifier.height(80.dp))
                         }
@@ -885,10 +887,10 @@ fun StickyNoteApp(
 
                 val categoryNotes = when {
                     trashOnly -> notes.filter { it.trashed }
-                    selected == "Sve" -> notes.filter { !it.trashed }
-                    else -> notes.filter { !it.trashed && it.category == selected }
+                    selected == "Sve" -> notes.filter { !it.trashed && it.archived == archiveOnly }
+                    else -> notes.filter { !it.trashed && it.archived == archiveOnly && it.category == selected }
                 }
-                val categoryTodoLists = if (trashOnly) emptyList() else todoLists.filter { selected == "Sve" || it.category == selected }
+                val categoryTodoLists = if (trashOnly) emptyList() else todoLists.filter { it.archived == archiveOnly && (selected == "Sve" || it.category == selected) }
                 val q = search.trim().lowercase()
                 val searched = if (q.isEmpty()) categoryNotes else categoryNotes.filter {
                     it.title.lowercase().contains(q) || it.text.lowercase().contains(q)
