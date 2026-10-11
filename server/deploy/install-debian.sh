@@ -25,7 +25,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl git build-essential python3
+apt-get install -y ca-certificates curl git build-essential python3 openssl
 
 # Install the Node.js 22 LTS runtime required by the backend.
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
