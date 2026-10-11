@@ -562,6 +562,9 @@ fun StickyNoteApp(
     var showCreateTodoList by remember { mutableStateOf(false) }
     var newTodoListTitle by remember { mutableStateOf("") }
     var newTodoListCategory by remember { mutableStateOf(if (selected == "Sve") categories.firstOrNull { it != "Sve" } ?: "Osobno" else selected) }
+    var editingTodoList by remember { mutableStateOf<TodoList?>(null) }
+    var editTodoListTitle by remember { mutableStateOf("") }
+    var editTodoListCategory by remember { mutableStateOf("Osobno") }
     var activeTodoList by remember { mutableStateOf<TodoList?>(null) }
     val activeTasks = tasks.filter { it.listId == selectedTodoListId }
     var showRenameTaskList by remember { mutableStateOf(false) }
@@ -886,30 +889,6 @@ fun StickyNoteApp(
                     else -> notes.filter { !it.trashed && it.category == selected }
                 }
                 val categoryTodoLists = if (trashOnly) emptyList() else todoLists.filter { selected == "Sve" || it.category == selected }
-                if (categoryTodoLists.isNotEmpty()) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-                        Text("To-do liste", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        categoryTodoLists.forEach { list ->
-                            val listTasks = tasks.filter { it.listId == list.id }
-                            Card(modifier = Modifier.fillMaxWidth().padding(top = 6.dp).clickable {
-                                selectedTodoListId = list.id
-                                showTasks = true
-                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                                    .putString("selected_todo_list_id", list.id).putBoolean("show_tasks_screen", true).apply()
-                            }) {
-                                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                    Text("☑", style = MaterialTheme.typography.titleLarge)
-                                    Spacer(Modifier.width(10.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(list.title, style = MaterialTheme.typography.titleSmall)
-                                        Text(listTasks.count { !it.completed }.toString() + " preostalo · " + listTasks.count { it.completed }.toString() + " dovršeno", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    Text("›", style = MaterialTheme.typography.titleLarge)
-                                }
-                            }
-                        }
-                    }
-                }
                 val q = search.trim().lowercase()
                 val searched = if (q.isEmpty()) categoryNotes else categoryNotes.filter {
                     it.title.lowercase().contains(q) || it.text.lowercase().contains(q)
@@ -920,6 +899,34 @@ fun StickyNoteApp(
                     .sortedWith(compareByDescending<Note> { it.pinned }.thenByDescending { it.favorite }.thenByDescending { it.updatedAt })
 
                 LazyVerticalGrid(columns = GridCells.Adaptive(160.dp), contentPadding = PaddingValues(12.dp)) {
+                    items(categoryTodoLists, key = { "todo:" + it.id }) { list ->
+                        val listTasks = tasks.filter { it.listId == list.id }
+                        Card(
+                            Modifier.padding(6.dp).fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF34333A))
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    Text("☑", style = MaterialTheme.typography.titleLarge)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(list.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 2)
+                                    TextButton(onClick = {
+                                        editTodoListTitle = list.title
+                                        editTodoListCategory = list.category
+                                        editingTodoList = list
+                                    }, contentPadding = PaddingValues(2.dp)) { Text("⋮") }
+                                }
+                                Text("${listTasks.count { !it.completed }} preostalo · ${listTasks.count { it.completed }} dovršeno", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.height(8.dp))
+                                TextButton(onClick = {
+                                    selectedTodoListId = list.id
+                                    showTasks = true
+                                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                                        .putString("selected_todo_list_id", list.id).putBoolean("show_tasks_screen", true).apply()
+                                }, modifier = Modifier.fillMaxWidth()) { Text("Otvori listu  ›") }
+                            }
+                        }
+                    }
                     items(filtered, key = { it.id }) { note ->
                         Card(
                             Modifier.padding(6.dp).clickable { editing = note },
@@ -1048,6 +1055,44 @@ fun StickyNoteApp(
                     }) { Text("＋ Nova lista") }
                 },
                 dismissButton = { TextButton(onClick = { showTodoListPicker = false }) { Text("Zatvori") } }
+            )
+        }
+
+        if (editingTodoList != null) {
+            val currentList = editingTodoList!!
+            AlertDialog(
+                onDismissRequest = { editingTodoList = null },
+                title = { Text("Uredi To-do listu") },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = editTodoListTitle,
+                            onValueChange = { editTodoListTitle = it },
+                            label = { Text("Naziv liste") },
+                            singleLine = true
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text("Premjesti u kategoriju", style = MaterialTheme.typography.labelLarge)
+                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(categories.filter { it != "Sve" }) { category ->
+                                FilterChip(selected = editTodoListCategory == category, onClick = { editTodoListCategory = category }, label = { Text(category) })
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val title = editTodoListTitle.trim()
+                        if (title.isNotEmpty()) {
+                            val updated = todoLists.map { if (it.id == currentList.id) it.copy(title = title, category = editTodoListCategory) else it }
+                            todoLists = updated
+                            saveTodoLists(context, updated)
+                            if (selectedTodoListId == currentList.id) selected = editTodoListCategory
+                        }
+                        editingTodoList = null
+                    }) { Text("Spremi") }
+                },
+                dismissButton = { TextButton(onClick = { editingTodoList = null }) { Text("Odustani") } }
             )
         }
 
