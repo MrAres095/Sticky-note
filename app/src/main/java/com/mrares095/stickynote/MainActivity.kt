@@ -579,6 +579,7 @@ fun StickyNoteApp(
     var newTodoListTitle by remember { mutableStateOf("") }
     var newTodoListCategory by remember { mutableStateOf(if (selected == "Sve") categories.firstOrNull { it != "Sve" } ?: "Osobno" else selected) }
     var editingTodoList by remember { mutableStateOf<TodoList?>(null) }
+    var confirmDeleteTodoList by remember { mutableStateOf<TodoList?>(null) }
     var editTodoListTitle by remember { mutableStateOf("") }
     var editTodoListCategory by remember { mutableStateOf("Osobno") }
     var activeTodoList by remember { mutableStateOf<TodoList?>(null) }
@@ -1009,9 +1010,9 @@ fun StickyNoteApp(
                             colors = CardDefaults.cardColors(containerColor = Color(note.color))
                         ) {
                             Column(Modifier.padding(14.dp)) {
-                                Text(note.title.ifBlank { "Bez naslova" }, style = MaterialTheme.typography.titleMedium)
+                                Text(note.title.ifBlank { "Bez naslova" }, style = MaterialTheme.typography.titleMedium, color = Color.White)
                                 Spacer(Modifier.height(8.dp))
-                                Text(note.text, maxLines = 8)
+                                Text(note.text, maxLines = 8, color = Color.White)
                                 note.attachmentUri?.let { uri ->
                                     val preview = remember(uri) { loadTaskThumbnail(context, uri) }
                                     if (preview != null) {
@@ -1164,6 +1165,10 @@ fun StickyNoteApp(
                                 editingTodoList = null
                             }) { Text("Vrati iz arhive") }
                         }
+                        TextButton(onClick = {
+                            confirmDeleteTodoList = currentList
+                            editingTodoList = null
+                        }) { Text("Obriši listu", color = MaterialTheme.colorScheme.error) }
                         Spacer(Modifier.height(12.dp))
                         Text("Premjesti cijelu listu u tab", style = MaterialTheme.typography.labelLarge)
                         categories.filter { it != "Sve" }.forEach { category ->
@@ -1190,6 +1195,32 @@ fun StickyNoteApp(
                     }) { Text("Spremi") }
                 },
                 dismissButton = { TextButton(onClick = { editingTodoList = null }) { Text("Odustani") } }
+            )
+        }
+
+        confirmDeleteTodoList?.let { listToDelete ->
+            AlertDialog(
+                onDismissRequest = { confirmDeleteTodoList = null },
+                title = { Text("Obriši To-do listu?") },
+                text = { Text("Lista „${listToDelete.title}” i svi njezini zadaci bit će obrisani. Ovu radnju možeš odmah poništiti iz izbornika ⋮.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        undoTasksSnapshot = tasks
+                        val remainingTasks = tasks.filterNot { it.listId == listToDelete.id }
+                        tasks.filter { it.listId == listToDelete.id }.forEach { cancelReminder(context, it.id) }
+                        tasks = remainingTasks
+                        saveTasks(context, remainingTasks)
+                        todoLists = todoLists.filterNot { it.id == listToDelete.id }
+                        saveTodoLists(context, todoLists)
+                        if (selectedTodoListId == listToDelete.id) {
+                            selectedTodoListId = todoLists.firstOrNull { it.category == selected && !it.archived }?.id
+                                ?: todoLists.firstOrNull { !it.archived }?.id
+                                ?: DEFAULT_TODO_LIST_ID
+                        }
+                        confirmDeleteTodoList = null
+                    }) { Text("Obriši", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = { TextButton(onClick = { confirmDeleteTodoList = null }) { Text("Odustani") } }
             )
         }
 
@@ -1563,7 +1594,34 @@ fun StickyNoteApp(
                                 )
                             }
                             Spacer(Modifier.height(4.dp))
-                            Text("Kategorija", style = MaterialTheme.typography.labelLarge)
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Text("Kategorija", style = MaterialTheme.typography.labelLarge)
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick = {
+                                    val saved = note.copy(
+                                        title = title, text = body,
+                                        category = if (cat == "🗑 Otpad" || cat == "Sve") "Osobno" else cat,
+                                        color = noteColor, archived = true, trashed = false,
+                                        reminderAt = noteReminderAt, attachmentUri = noteAttachmentUri,
+                                        updatedAt = System.currentTimeMillis()
+                                    )
+                                    persistNotes((notes.filterNot { it.id == note.id }) + saved)
+                                    editing = null
+                                }) { Text("Arhiviraj") }
+                                TextButton(onClick = {
+                                    val saved = note.copy(
+                                        title = title, text = body,
+                                        category = if (cat == "🗑 Otpad" || cat == "Sve") "Osobno" else cat,
+                                        color = noteColor, trashed = true,
+                                        reminderAt = null, attachmentUri = noteAttachmentUri,
+                                        updatedAt = System.currentTimeMillis()
+                                    )
+                                    undoNotesSnapshot = notes
+                                    cancelNoteReminder(context, note.id)
+                                    persistNotes((notes.filterNot { it.id == note.id }) + saved)
+                                    editing = null
+                                }) { Text("Obriši") }
+                            }
                             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 items(categories.filter { it != "Sve" }) { category ->
                                     FilterChip(
@@ -1602,7 +1660,7 @@ fun StickyNoteApp(
                                         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.65f))
                                     ) {}
                                     Spacer(Modifier.width(10.dp))
-                                    Text(noteColors.firstOrNull { it.first == noteColor }?.second ?: "Odaberi boju")
+                                    Text(noteColors.firstOrNull { it.first == noteColor }?.second ?: "Odaberi boju", color = Color.White)
                                     Spacer(Modifier.weight(1f))
                                     Text("▾")
                                 }
@@ -1622,7 +1680,7 @@ fun StickyNoteApp(
                                                         border = if (noteColor == color) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
                                                     ) {}
                                                     Spacer(Modifier.width(12.dp))
-                                                    Text(label)
+                                                    Text(label, color = Color.White)
                                                     Spacer(Modifier.weight(1f))
                                                     if (noteColor == color) Text("✓", color = MaterialTheme.colorScheme.primary)
                                                 }
