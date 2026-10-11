@@ -890,7 +890,8 @@ fun StickyNoteApp(
                     }
                     TextButton(onClick = { archiveOnly = !archiveOnly; trashOnly = false }) {
                         Text(if (archiveOnly) "Arhiva (povratak)" else "Arhiva")
-                    }                    if (undoNotesSnapshot != null || undoTasksSnapshot != null) {
+                    }
+                    if (undoNotesSnapshot != null || undoTasksSnapshot != null) {
                         TextButton(onClick = {
                             undoNotesSnapshot?.let { persistNotes(it) }
                             undoTasksSnapshot?.let { tasks = it; saveTasks(context, it) }
