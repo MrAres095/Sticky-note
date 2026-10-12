@@ -98,7 +98,7 @@ internal object NotesServerSync {
                     noteCount++
                 } else {
                     val idx = mergedNotes.indexOfFirst { it.id == local.id }
-                    if (idx >= 0) mergedNotes[idx] = localFromRemote(local.id, remote, local.attachmentUri)
+                    if (idx >= 0) mergedNotes[idx] = localFromRemote(local.id, remote, local.attachmentUri, categoryNames)
                 }
             }
         }
@@ -115,7 +115,7 @@ internal object NotesServerSync {
                 noteMap[local.id.toString()] = serverId
                 continue
             }
-            mergedNotes.add(localFromRemote(nextNoteId++, remote, null))
+            mergedNotes.add(localFromRemote(nextNoteId++, remote, null, categoryNames))
             noteMap[(nextNoteId - 1).toString()] = serverId
             noteCount++
         }
@@ -214,11 +214,11 @@ internal object NotesServerSync {
         .put("archived", n.archived).put("trashed", n.trashed)
         .put("reminderAt", n.reminderAt ?: JSONObject.NULL)
 
-    private fun localFromRemote(id: Long, n: JSONObject, attachment: String?): Note = Note(
+    private fun localFromRemote(id: Long, n: JSONObject, attachment: String?, categoryNames: Map<String, String>): Note = Note(
         id = id,
         title = n.optString("title"),
         text = n.optString("text"),
-        category = n.optString("categoryName").ifBlank { "Osobno" },
+        category = categoryNames[n.optString("categoryId")] ?: "Osobno",
         favorite = n.optBoolean("favorite"),
         pinned = n.optBoolean("pinned"),
         archived = n.optBoolean("archived"),
