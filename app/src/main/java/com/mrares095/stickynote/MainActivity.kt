@@ -1954,25 +1954,37 @@ fun StickyNoteApp(
                         }
                         Row {
                             TextButton(
-                                enabled = !serverAuthBusy && NotesServerApi(context).savedToken() != null,
+                                enabled = !serverAuthBusy,
                                 onClick = {
                                     serverAuthBusy = true
                                     serverConfigError = null
                                     serverAuthStatus = null
-                                    thread {
-                                        try {
-                                            NotesServerApi(context).verifySession()
-                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                                serverAuthBusy = false
-                                                serverAuthStatus = "Veza i prijava rade za ${NotesServerApi(context).savedEmail()}."
-                                            }
-                                        } catch (e: Exception) {
-                                            NotesServerApi(context).clearSession()
-                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                                serverAuthBusy = false
-                                                serverConfigError = e.message ?: "Sesija nije valjana; prijavi se ponovno."
+                                    try {
+                                        NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
+                                        serverUrlDraft = NotesServerConfig.baseUrl(context)
+                                        thread {
+                                            try {
+                                                val health = NotesServerApi(context).testConnection()
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    val status = health.optString("status", "ok")
+                                                    val version = health.optString("apiVersion")
+                                                    serverAuthStatus = if (status == "ok") {
+                                                        "Server je dostupan. API radi${if (version.isNotBlank()) " (v$version)" else ""}."
+                                                    } else {
+                                                        "Server odgovara, ali status nije očekivan: $status."
+                                                    }
+                                                }
+                                            } catch (e: Exception) {
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    serverConfigError = "Nije moguće spojiti se na server: ${e.message ?: "provjeri IP, port i Wi-Fi mrežu"}"
+                                                }
                                             }
                                         }
+                                    } catch (e: Exception) {
+                                        serverAuthBusy = false
+                                        serverConfigError = e.message ?: "Adresa servera nije valjana."
                                     }
                                 }
                             ) { Text("Testiraj vezu") }
