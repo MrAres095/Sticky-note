@@ -568,6 +568,10 @@ fun StickyNoteApp(
     var showServerSettings by remember { mutableStateOf(false) }
     var serverUrlDraft by remember { mutableStateOf(NotesServerConfig.DEFAULT_BASE_URL) }
     var serverConfigError by remember { mutableStateOf<String?>(null) }
+    var serverEmailDraft by remember { mutableStateOf(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("notes_server_email", "").orEmpty()) }
+    var serverPasswordDraft by remember { mutableStateOf("") }
+    var serverAuthBusy by remember { mutableStateOf(false) }
+    var serverAuthStatus by remember { mutableStateOf<String?>(null) }
     var tasks by remember { mutableStateOf(loadTasks(context).map { task -> if (task.listId == DEFAULT_TODO_LIST_ID) task else task }) }
     var todoLists by remember { mutableStateOf(loadTodoLists(context)) }
     var selectedTodoListId by remember {
@@ -1837,47 +1841,165 @@ fun StickyNoteApp(
         if (showServerSettings) {
             AlertDialog(
                 onDismissRequest = { showServerSettings = false; serverConfigError = null },
-                title = { Text("Postavke servera") },
+                title = { Text("Sticky & Note server") },
                 text = {
-                    Column {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                         Text(
-                            "Ovdje možeš promijeniti adresu budućeg zajedničkog servera. Sinkronizacija s ovim serverom još nije uključena.",
+                            "Prijava povezuje račun s API-jem. Lokalne bilješke zasad ostaju na uređaju; automatska sinkronizacija još nije uključena.",
                             style = MaterialTheme.typography.bodySmall
                         )
                         Spacer(Modifier.height(10.dp))
                         OutlinedTextField(
                             value = serverUrlDraft,
-                            onValueChange = { serverUrlDraft = it; serverConfigError = null },
+                            onValueChange = { serverUrlDraft = it; serverConfigError = null; serverAuthStatus = null },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Adresa servera") },
                             singleLine = true,
                             placeholder = { Text("https://notes.mandocloud.uk") }
                         )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = serverEmailDraft,
+                            onValueChange = { serverEmailDraft = it; serverConfigError = null; serverAuthStatus = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("E-mail") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = serverPasswordDraft,
+                            onValueChange = { serverPasswordDraft = it; serverConfigError = null; serverAuthStatus = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Lozinka servera") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                        )
                         serverConfigError?.let {
                             Spacer(Modifier.height(6.dp))
                             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         }
+                        serverAuthStatus?.let {
+                            Spacer(Modifier.height(6.dp))
+                            Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (serverAuthBusy) {
+                            Spacer(Modifier.height(8.dp))
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = {
-                        try {
-                            NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
-                            serverUrlDraft = NotesServerConfig.baseUrl(context)
-                            serverConfigError = null
-                            showServerSettings = false
-                        } catch (e: Exception) {
-                            serverConfigError = e.message ?: "Adresa servera nije valjana."
+                    Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
+                        Row {
+                            TextButton(
+                                enabled = !serverAuthBusy && serverEmailDraft.isNotBlank() && serverPasswordDraft.length >= 12,
+                                onClick = {
+                                    serverAuthBusy = true
+                                    serverConfigError = null
+                                    serverAuthStatus = null
+                                    try {
+                                        NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
+                                        thread {
+                                            try {
+                                                val session = NotesServerApi(context).login(serverEmailDraft, serverPasswordDraft)
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    serverPasswordDraft = ""
+                                                    serverAuthStatus = "Prijavljen: ${session.email}. Bilješke još nisu sinkronizirane."
+                                                }
+                                            } catch (e: Exception) {
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    serverConfigError = e.message ?: "Prijava nije uspjela."
+                                                }
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        serverAuthBusy = false
+                                        serverConfigError = e.message ?: "Adresa servera nije valjana."
+                                    }
+                                }
+                            ) { Text("Prijava") }
+                            TextButton(
+                                enabled = !serverAuthBusy && serverEmailDraft.isNotBlank() && serverPasswordDraft.length >= 12,
+                                onClick = {
+                                    serverAuthBusy = true
+                                    serverConfigError = null
+                                    serverAuthStatus = null
+                                    try {
+                                        NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
+                                        thread {
+                                            try {
+                                                val session = NotesServerApi(context).register(serverEmailDraft, serverPasswordDraft)
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    serverPasswordDraft = ""
+                                                    serverAuthStatus = "Račun je stvoren i prijavljen: ${session.email}. Bilješke još nisu sinkronizirane."
+                                                }
+                                            } catch (e: Exception) {
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    serverConfigError = e.message ?: "Registracija nije uspjela."
+                                                }
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        serverAuthBusy = false
+                                        serverConfigError = e.message ?: "Adresa servera nije valjana."
+                                    }
+                                }
+                            ) { Text("Registracija") }
                         }
-                    }) { Text("Spremi") }
+                        Row {
+                            TextButton(
+                                enabled = !serverAuthBusy && NotesServerApi(context).savedToken() != null,
+                                onClick = {
+                                    serverAuthBusy = true
+                                    serverConfigError = null
+                                    serverAuthStatus = null
+                                    thread {
+                                        try {
+                                            NotesServerApi(context).verifySession()
+                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                serverAuthBusy = false
+                                                serverAuthStatus = "Veza i prijava rade za ${NotesServerApi(context).savedEmail()}."
+                                            }
+                                        } catch (e: Exception) {
+                                            NotesServerApi(context).clearSession()
+                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                serverAuthBusy = false
+                                                serverConfigError = e.message ?: "Sesija nije valjana; prijavi se ponovno."
+                                            }
+                                        }
+                                    }
+                                }
+                            ) { Text("Testiraj vezu") }
+                            TextButton(
+                                enabled = !serverAuthBusy,
+                                onClick = {
+                                    try {
+                                        NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
+                                        serverUrlDraft = NotesServerConfig.baseUrl(context)
+                                        serverConfigError = null
+                                        showServerSettings = false
+                                    } catch (e: Exception) {
+                                        serverConfigError = e.message ?: "Adresa servera nije valjana."
+                                    }
+                                }
+                            ) { Text("Spremi adresu") }
+                        }
+                    }
                 },
                 dismissButton = {
                     Row {
                         TextButton(onClick = {
                             serverUrlDraft = NotesServerConfig.DEFAULT_BASE_URL
                             serverConfigError = null
+                            serverAuthStatus = null
                         }) { Text("Zadano") }
-                        TextButton(onClick = { showServerSettings = false; serverConfigError = null }) { Text("Odustani") }
+                        TextButton(onClick = { showServerSettings = false; serverConfigError = null }) { Text("Zatvori") }
                     }
                 }
             )
