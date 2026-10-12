@@ -198,6 +198,27 @@ internal object NotesServerSync {
                 taskCount++
             }
         }
+        val knownServerLists = listMap.values.toSet()
+        var nextTaskId = (mergedTasks.maxOfOrNull { it.id } ?: 0L) + 1L
+        for (remoteList in remoteLists.values) {
+            val serverListId = remoteList.optString("id")
+            if (serverListId in knownServerLists) continue
+            val localListId = "srv_$serverListId"
+            val category = categoryNames[remoteList.optString("categoryId")] ?: "Osobno"
+            mergedLists.add(TodoList(localListId, remoteList.optString("title"), category, remoteList.optBoolean("archived")))
+            listMap[localListId] = serverListId
+            val remoteTasks = remoteList.optJSONArray("tasks") ?: JSONArray()
+            for (j in 0 until remoteTasks.length()) {
+                val remoteTask = remoteTasks.optJSONObject(j) ?: continue
+                val localTaskId = nextTaskId++
+                mergedTasks.add(TodoTask(localTaskId, remoteTask.optString("title"), remoteTask.optBoolean("completed"),
+                    remoteTask.optLong("reminderAt").takeIf { it > 0L }, null, localListId))
+                taskMap[localTaskId.toString()] = remoteTask.optString("id")
+                taskCount++
+            }
+            listCount++
+        }
+
         prefs.edit()
             .putString(NOTE_MAP, writeMap(noteMap))
             .putString(LIST_MAP, writeMap(listMap))
