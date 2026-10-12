@@ -1902,8 +1902,8 @@ fun StickyNoteApp(
                                         serverConfigError = "Upiši valjanu e-mail adresu."
                                         return@TextButton
                                     }
-                                    if (serverPasswordDraft.length < 12) {
-                                        serverConfigError = "Lozinka mora imati najmanje 12 znakova."
+                                    if (serverPasswordDraft.length < 8) {
+                                        serverConfigError = "Lozinka mora imati najmanje 8 znakova."
                                         return@TextButton
                                     }
                                     serverAuthBusy = true
@@ -1939,8 +1939,8 @@ fun StickyNoteApp(
                                         serverConfigError = "Upiši valjanu e-mail adresu."
                                         return@TextButton
                                     }
-                                    if (serverPasswordDraft.length < 12) {
-                                        serverConfigError = "Lozinka mora imati najmanje 12 znakova."
+                                    if (serverPasswordDraft.length < 8) {
+                                        serverConfigError = "Lozinka mora imati najmanje 8 znakova."
                                         return@TextButton
                                     }
                                     serverAuthBusy = true
