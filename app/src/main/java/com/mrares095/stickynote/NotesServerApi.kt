@@ -30,6 +30,8 @@ class NotesServerApi(private val context: Context) {
     fun login(email: String, password: String): Session = authenticate("auth/login", email, password)
 
     @Throws(IOException::class)
+    fun testConnection(): JSONObject = request("GET", "health")
+
     fun verifySession(): JSONObject = request("GET", "auth/me", token = savedToken())
 
     @Throws(IOException::class)
