@@ -1894,16 +1894,24 @@ fun StickyNoteApp(
                     Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
                         Row {
                             TextButton(
-                                enabled = !serverAuthBusy && serverEmailDraft.isNotBlank() && serverPasswordDraft.length >= 12,
+                                enabled = !serverAuthBusy,
                                 onClick = {
-                                    serverAuthBusy = true
                                     serverConfigError = null
                                     serverAuthStatus = null
+                                    if (serverEmailDraft.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(serverEmailDraft.trim()).matches()) {
+                                        serverConfigError = "Upiši valjanu e-mail adresu."
+                                        return@TextButton
+                                    }
+                                    if (serverPasswordDraft.length < 12) {
+                                        serverConfigError = "Lozinka mora imati najmanje 12 znakova."
+                                        return@TextButton
+                                    }
+                                    serverAuthBusy = true
                                     try {
                                         NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
                                         thread {
                                             try {
-                                                val session = NotesServerApi(context).login(serverEmailDraft, serverPasswordDraft)
+                                                val session = NotesServerApi(context).login(serverEmailDraft.trim(), serverPasswordDraft)
                                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                                     serverAuthBusy = false
                                                     serverPasswordDraft = ""
@@ -1923,16 +1931,24 @@ fun StickyNoteApp(
                                 }
                             ) { Text("Prijava") }
                             TextButton(
-                                enabled = !serverAuthBusy && serverEmailDraft.isNotBlank() && serverPasswordDraft.length >= 12,
+                                enabled = !serverAuthBusy,
                                 onClick = {
-                                    serverAuthBusy = true
                                     serverConfigError = null
                                     serverAuthStatus = null
+                                    if (serverEmailDraft.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(serverEmailDraft.trim()).matches()) {
+                                        serverConfigError = "Upiši valjanu e-mail adresu."
+                                        return@TextButton
+                                    }
+                                    if (serverPasswordDraft.length < 12) {
+                                        serverConfigError = "Lozinka mora imati najmanje 12 znakova."
+                                        return@TextButton
+                                    }
+                                    serverAuthBusy = true
                                     try {
                                         NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
                                         thread {
                                             try {
-                                                val session = NotesServerApi(context).register(serverEmailDraft, serverPasswordDraft)
+                                                val session = NotesServerApi(context).register(serverEmailDraft.trim(), serverPasswordDraft)
                                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                                     serverAuthBusy = false
                                                     serverPasswordDraft = ""
