@@ -568,6 +568,10 @@ fun StickyNoteApp(
     var showServerSettings by remember { mutableStateOf(false) }
     var serverUrlDraft by remember { mutableStateOf(NotesServerConfig.DEFAULT_BASE_URL) }
     var serverConfigError by remember { mutableStateOf<String?>(null) }
+    var serverEmailDraft by remember { mutableStateOf(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("notes_server_email", "").orEmpty()) }
+    var serverPasswordDraft by remember { mutableStateOf("") }
+    var serverAuthBusy by remember { mutableStateOf(false) }
+    var serverAuthStatus by remember { mutableStateOf<String?>(null) }
     var tasks by remember { mutableStateOf(loadTasks(context).map { task -> if (task.listId == DEFAULT_TODO_LIST_ID) task else task }) }
     var todoLists by remember { mutableStateOf(loadTodoLists(context)) }
     var selectedTodoListId by remember {
@@ -1837,47 +1841,229 @@ fun StickyNoteApp(
         if (showServerSettings) {
             AlertDialog(
                 onDismissRequest = { showServerSettings = false; serverConfigError = null },
-                title = { Text("Postavke servera") },
+                title = { Text("Sticky & Note server") },
                 text = {
-                    Column {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                         Text(
-                            "Ovdje možeš promijeniti adresu budućeg zajedničkog servera. Sinkronizacija s ovim serverom još nije uključena.",
+                            "Prijava povezuje račun s API-jem. Pritisni „Sinkroniziraj sa serverom” za ručno spajanje bilješki i todo lista između uređaja.",
                             style = MaterialTheme.typography.bodySmall
                         )
                         Spacer(Modifier.height(10.dp))
                         OutlinedTextField(
                             value = serverUrlDraft,
-                            onValueChange = { serverUrlDraft = it; serverConfigError = null },
+                            onValueChange = { serverUrlDraft = it; serverConfigError = null; serverAuthStatus = null },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Adresa servera") },
                             singleLine = true,
                             placeholder = { Text("https://notes.mandocloud.uk") }
                         )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = serverEmailDraft,
+                            onValueChange = { serverEmailDraft = it; serverConfigError = null; serverAuthStatus = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("E-mail") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = serverPasswordDraft,
+                            onValueChange = { serverPasswordDraft = it; serverConfigError = null; serverAuthStatus = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Lozinka servera") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                        )
                         serverConfigError?.let {
                             Spacer(Modifier.height(6.dp))
                             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         }
+                        serverAuthStatus?.let {
+                            Spacer(Modifier.height(6.dp))
+                            Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Ova sinkronizacija koristi Sticky & Note server, ne Google Drive. Lokalni privici i slike ostaju na ovom uređaju.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        TextButton(
+                            enabled = !serverAuthBusy && !NotesServerApi(context).savedToken().isNullOrBlank(),
+                            onClick = {
+                                serverAuthBusy = true
+                                serverConfigError = null
+                                serverAuthStatus = "Sinkronizacija sa serverom u tijeku…"
+                                thread {
+                                    try {
+                                        val result = NotesServerSync.sync(context, notes, categories, todoLists, tasks)
+                                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                            notes = result.notes
+                                            categories = result.categories
+                                            todoLists = result.lists
+                                            tasks = result.tasks
+                                            saveNotes(context, result.notes)
+                                            saveCategories(context, result.categories)
+                                            saveTodoLists(context, result.lists)
+                                            saveTasks(context, result.tasks)
+                                            serverAuthBusy = false
+                                            serverAuthStatus = "Sinkronizacija završena. Bilješke: ${result.notes.size}, todo liste: ${result.lists.size}, zadaci: ${result.tasks.size}."
+                                        }
+                                    } catch (e: Exception) {
+                                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                            serverAuthBusy = false
+                                            serverAuthStatus = null
+                                            serverConfigError = "Sinkronizacija nije uspjela: ${e.message ?: "provjeri vezu i prijavu"}"
+                                        }
+                                    }
+                                }
+                            }
+                        ) { Text("Sinkroniziraj sa serverom") }
+                        if (serverAuthBusy) {
+                            Spacer(Modifier.height(8.dp))
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = {
-                        try {
-                            NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
-                            serverUrlDraft = NotesServerConfig.baseUrl(context)
-                            serverConfigError = null
-                            showServerSettings = false
-                        } catch (e: Exception) {
-                            serverConfigError = e.message ?: "Adresa servera nije valjana."
+                    Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
+                        Row {
+                            TextButton(
+                                enabled = !serverAuthBusy,
+                                onClick = {
+                                    serverConfigError = null
+                                    serverAuthStatus = null
+                                    if (serverEmailDraft.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(serverEmailDraft.trim()).matches()) {
+                                        serverConfigError = "Upiši valjanu e-mail adresu."
+                                        return@TextButton
+                                    }
+                                    if (serverPasswordDraft.length < 8) {
+                                        serverConfigError = "Lozinka mora imati najmanje 8 znakova."
+                                        return@TextButton
+                                    }
+                                    serverAuthBusy = true
+                                    try {
+                                        NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
+                                        thread {
+                                            try {
+                                                val session = NotesServerApi(context).login(serverEmailDraft.trim(), serverPasswordDraft)
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    serverPasswordDraft = ""
+                                                    serverAuthStatus = "Prijavljen: ${session.email}. Bilješke još nisu sinkronizirane."
+                                                }
+                                            } catch (e: Exception) {
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    serverConfigError = e.message ?: "Prijava nije uspjela."
+                                                }
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        serverAuthBusy = false
+                                        serverConfigError = e.message ?: "Adresa servera nije valjana."
+                                    }
+                                }
+                            ) { Text("Prijava") }
+                            TextButton(
+                                enabled = !serverAuthBusy,
+                                onClick = {
+                                    serverConfigError = null
+                                    serverAuthStatus = null
+                                    if (serverEmailDraft.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(serverEmailDraft.trim()).matches()) {
+                                        serverConfigError = "Upiši valjanu e-mail adresu."
+                                        return@TextButton
+                                    }
+                                    if (serverPasswordDraft.length < 8) {
+                                        serverConfigError = "Lozinka mora imati najmanje 8 znakova."
+                                        return@TextButton
+                                    }
+                                    serverAuthBusy = true
+                                    try {
+                                        NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
+                                        thread {
+                                            try {
+                                                val session = NotesServerApi(context).register(serverEmailDraft.trim(), serverPasswordDraft)
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    serverPasswordDraft = ""
+                                                    serverAuthStatus = "Račun je stvoren i prijavljen: ${session.email}. Bilješke još nisu sinkronizirane."
+                                                }
+                                            } catch (e: Exception) {
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    serverConfigError = e.message ?: "Registracija nije uspjela."
+                                                }
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        serverAuthBusy = false
+                                        serverConfigError = e.message ?: "Adresa servera nije valjana."
+                                    }
+                                }
+                            ) { Text("Registracija") }
                         }
-                    }) { Text("Spremi") }
+                        Row {
+                            TextButton(
+                                enabled = !serverAuthBusy,
+                                onClick = {
+                                    serverAuthBusy = true
+                                    serverConfigError = null
+                                    serverAuthStatus = null
+                                    try {
+                                        NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
+                                        serverUrlDraft = NotesServerConfig.baseUrl(context)
+                                        thread {
+                                            try {
+                                                val health = NotesServerApi(context).testConnection()
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    val status = health.optString("status", "ok")
+                                                    val version = health.optString("apiVersion")
+                                                    serverAuthStatus = if (status == "ok") {
+                                                        "Server je dostupan. API radi${if (version.isNotBlank()) " (v$version)" else ""}."
+                                                    } else {
+                                                        "Server odgovara, ali status nije očekivan: $status."
+                                                    }
+                                                }
+                                            } catch (e: Exception) {
+                                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                    serverAuthBusy = false
+                                                    serverConfigError = "Nije moguće spojiti se na server: ${e.message ?: "provjeri IP, port i Wi-Fi mrežu"}"
+                                                }
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        serverAuthBusy = false
+                                        serverConfigError = e.message ?: "Adresa servera nije valjana."
+                                    }
+                                }
+                            ) { Text("Testiraj vezu") }
+                            TextButton(
+                                enabled = !serverAuthBusy,
+                                onClick = {
+                                    try {
+                                        NotesServerConfig.saveBaseUrl(context, serverUrlDraft)
+                                        serverUrlDraft = NotesServerConfig.baseUrl(context)
+                                        serverConfigError = null
+                                        showServerSettings = false
+                                    } catch (e: Exception) {
+                                        serverConfigError = e.message ?: "Adresa servera nije valjana."
+                                    }
+                                }
+                            ) { Text("Spremi adresu") }
+                        }
+                    }
                 },
                 dismissButton = {
                     Row {
                         TextButton(onClick = {
                             serverUrlDraft = NotesServerConfig.DEFAULT_BASE_URL
                             serverConfigError = null
+                            serverAuthStatus = null
                         }) { Text("Zadano") }
-                        TextButton(onClick = { showServerSettings = false; serverConfigError = null }) { Text("Odustani") }
+                        TextButton(onClick = { showServerSettings = false; serverConfigError = null }) { Text("Zatvori") }
                     }
                 }
             )

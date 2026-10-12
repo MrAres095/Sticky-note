@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feature/android-server-client
   workflow_dispatch:
 
 permissions:
@@ -133,6 +134,8 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Sticky & Note v${{ steps.version.outputs.version_name }}
           body: |
-            Automatski build za commit ${{ github.sha }}.
+            Automatski potpisani APK za commit ${{ github.sha }}.
+            ${{ github.ref_name != 'main' && 'TESTNO IZDANJE: povezivanje računa/API-ja; sinkronizacija svih lokalnih bilješki još nije uključena.' || 'Stabilno izdanje.' }}
           files: app/build/outputs/apk/release/*.apk
           generate_release_notes: true
+          prerelease: ${{ github.ref_name != 'main' }}
