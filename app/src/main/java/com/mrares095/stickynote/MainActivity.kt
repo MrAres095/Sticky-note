@@ -1845,7 +1845,7 @@ fun StickyNoteApp(
                 text = {
                     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                         Text(
-                            "Prijava povezuje račun s API-jem. Lokalne bilješke zasad ostaju na uređaju; automatska sinkronizacija još nije uključena.",
+                            "Prijava povezuje račun s API-jem. Pritisni „Sinkroniziraj sa serverom” za ručno spajanje bilješki i todo lista između uređaja.",
                             style = MaterialTheme.typography.bodySmall
                         )
                         Spacer(Modifier.height(10.dp))
@@ -1884,6 +1884,42 @@ fun StickyNoteApp(
                             Spacer(Modifier.height(6.dp))
                             Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                         }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Ova sinkronizacija koristi Sticky & Note server, ne Google Drive. Lokalni privici i slike ostaju na ovom uređaju.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        TextButton(
+                            enabled = !serverAuthBusy && !NotesServerApi(context).savedToken().isNullOrBlank(),
+                            onClick = {
+                                serverAuthBusy = true
+                                serverConfigError = null
+                                serverAuthStatus = "Sinkronizacija sa serverom u tijeku…"
+                                thread {
+                                    try {
+                                        val result = NotesServerSync.sync(context, notes, categories, todoLists, tasks)
+                                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                            notes = result.notes
+                                            categories = result.categories
+                                            todoLists = result.lists
+                                            tasks = result.tasks
+                                            saveNotes(context, result.notes)
+                                            saveCategories(context, result.categories)
+                                            saveTodoLists(context, result.lists)
+                                            saveTasks(context, result.tasks)
+                                            serverAuthBusy = false
+                                            serverAuthStatus = "Sinkronizacija završena. Bilješke: ${result.notes.size}, todo liste: ${result.lists.size}, zadaci: ${result.tasks.size}."
+                                        }
+                                    } catch (e: Exception) {
+                                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                            serverAuthBusy = false
+                                            serverAuthStatus = null
+                                            serverConfigError = "Sinkronizacija nije uspjela: ${e.message ?: "provjeri vezu i prijavu"}"
+                                        }
+                                    }
+                                }
+                            }
+                        ) { Text("Sinkroniziraj sa serverom") }
                         if (serverAuthBusy) {
                             Spacer(Modifier.height(8.dp))
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
