@@ -2,8 +2,11 @@
   "name": "sticky-note-server",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Shared backend for Sticky & Note clients",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
