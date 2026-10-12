@@ -98,7 +98,7 @@ internal object NotesServerSync {
                     noteCount++
                 } else {
                     val idx = mergedNotes.indexOfFirst { it.id == local.id }
-                    if (idx >= 0) mergedNotes[idx] = localFromRemote(local.id, remote, local.attachmentUri, categoryNames)
+                    if (idx >= 0) mergedNotes[idx] = localFromRemote(local.id, remote, local.attachmentUri, categoryNames, local.color)
                 }
             }
         }
@@ -235,13 +235,14 @@ internal object NotesServerSync {
         .put("archived", n.archived).put("trashed", n.trashed)
         .put("reminderAt", n.reminderAt ?: JSONObject.NULL)
 
-    private fun localFromRemote(id: Long, n: JSONObject, attachment: String?, categoryNames: Map<String, String>): Note = Note(
+    private fun localFromRemote(id: Long, n: JSONObject, attachment: String?, categoryNames: Map<String, String>, localColor: Long = 0xFF252525): Note = Note(
         id = id,
         title = n.optString("title"),
         text = n.optString("text"),
         category = categoryNames[n.optString("categoryId")] ?: "Osobno",
         favorite = n.optBoolean("favorite"),
         pinned = n.optBoolean("pinned"),
+        color = localColor,
         archived = n.optBoolean("archived"),
         trashed = n.optBoolean("trashed"),
         reminderAt = n.optLong("reminderAt").takeIf { it > 0L },
