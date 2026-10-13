@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/android-server-client
+      - feature/google-keep-takeout-import
   workflow_dispatch:
 
 permissions:
