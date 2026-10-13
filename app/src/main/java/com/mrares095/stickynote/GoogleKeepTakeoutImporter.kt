@@ -4,8 +4,6 @@ import android.content.Context
 import android.net.Uri
 import org.json.JSONObject
 import java.util.zip.ZipInputStream
-import java.io.InputStreamReader
-import java.io.BufferedReader
 
 /**
  * Reads Google Takeout's Google Keep JSON exports locally on-device.
@@ -27,7 +25,7 @@ object GoogleKeepTakeoutImporter {
                     val entry = zip.nextEntry ?: break
                     if (!entry.isDirectory && entry.name.endsWith(".json", true)) {
                         try {
-                            val content = BufferedReader(InputStreamReader(zip, Charsets.UTF_8)).readText()
+                            val content = String(zip.readBytes(), Charsets.UTF_8)
                             val obj = JSONObject(content)
                             if (!obj.has("title") && !obj.has("textContent") && !obj.has("listContent")) {
                                 skipped++
