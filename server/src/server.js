@@ -79,7 +79,7 @@ app.post("/api/v1/auth/register", async (request,reply) => {
   const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
   const password = request.body?.password;
   if (!emailOk(email)) return sendError(reply,400,"invalid_email","Unesite valjanu e-mail adresu.");
-  if (typeof password !== "string" || password.length < 12 || password.length > 128) return sendError(reply,400,"invalid_password","Lozinka mora imati 12–128 znakova.");
+  if (typeof password !== "string" || password.length < 8 || password.length > 128) return sendError(reply,400,"invalid_password","Lozinka mora imati 8–128 znakova.");
   const userId = id(), createdAt = now();
   try { db.prepare("INSERT INTO users(id,email,password_hash,created_at) VALUES(?,?,?,?)").run(userId,email,await argon2.hash(password,{type:argon2.argon2id}),createdAt); }
   catch(e) { if (String(e.code).includes("CONSTRAINT")) return sendError(reply,409,"email_exists","Račun s tom e-mail adresom već postoji."); throw e; }
@@ -213,8 +213,12 @@ app.delete("/api/v1/categories/:id", async (request,reply) => {
   const userId=request.auth.userId, old=db.prepare("SELECT id FROM categories WHERE id=? AND user_id=? AND deleted_at IS NULL").get(request.params.id,userId);
   if (!old) return sendError(reply,404,"not_found","Kategorija nije pronađena.");
   const at=now(); db.prepare("UPDATE categories SET deleted_at=?,updated_at=? WHERE id=? AND user_id=?").run(at,at,old.id,userId);
+  const affectedNotes = db.prepare("SELECT id FROM notes WHERE user_id=? AND category_id=? AND deleted_at IS NULL").all(userId,old.id);
+  const affectedLists = db.prepare("SELECT id FROM todo_lists WHERE user_id=? AND category_id=? AND deleted_at IS NULL").all(userId,old.id);
   db.prepare("UPDATE notes SET category_id=NULL,updated_at=? WHERE user_id=? AND category_id=?").run(at,userId,old.id);
   db.prepare("UPDATE todo_lists SET category_id=NULL,updated_at=? WHERE user_id=? AND category_id=?").run(at,userId,old.id);
+  for (const note of affectedNotes) logChange(userId,"note",note.id);
+  for (const list of affectedLists) logChange(userId,"todo_list",list.id);
   logChange(userId,"category",old.id,"delete");
   return reply.code(204).send();
 });
@@ -292,8 +296,11 @@ app.patch("/api/v1/todos/:id", async (request,reply) => {
 app.delete("/api/v1/todos/:id", async (request,reply) => {
   const userId=request.auth.userId,list=ownList(userId,request.params.id);
   if (!list) return sendError(reply,404,"not_found","Todo lista nije pronađena.");
-  const at=now(); db.prepare("UPDATE todo_lists SET deleted_at=?,updated_at=? WHERE id=? AND user_id=?").run(at,at,list.id,userId);
+  const at=now();
+  const tasks = db.prepare("SELECT id FROM tasks WHERE user_id=? AND list_id=? AND deleted_at IS NULL").all(userId,list.id);
+  db.prepare("UPDATE todo_lists SET deleted_at=?,updated_at=? WHERE id=? AND user_id=?").run(at,at,list.id,userId);
   db.prepare("UPDATE tasks SET deleted_at=?,updated_at=? WHERE user_id=? AND list_id=? AND deleted_at IS NULL").run(at,at,userId,list.id);
+  for (const task of tasks) logChange(userId,"task",task.id,"delete");
   logChange(userId,"todo_list",list.id,"delete");
   return reply.code(204).send();
 });
@@ -302,13 +309,15 @@ app.post("/api/v1/todos/:id/tasks", async (request,reply) => {
   if (!list) return sendError(reply,404,"not_found","Todo lista nije pronađena.");
   const b=request.body||{},title=textField(b.title,2000,"title");
   if (!title) return sendError(reply,400,"invalid_title","Naziv zadatka je obavezan.");
+  const completed=boolField(b.completed,0);
+  if (completed===null) return sendError(reply,400,"invalid_boolean","completed mora biti true ili false.");
   const taskId=id(),at=now(),position=Number.isSafeInteger(b.position)&&b.position>=0?b.position:(db.prepare("SELECT COALESCE(MAX(position),-1)+1 AS p FROM tasks WHERE user_id=? AND list_id=? AND deleted_at IS NULL").get(userId,list.id).p);
   const reminderAt=b.reminderAt==null?null:Number(b.reminderAt);
   if (reminderAt!==null&&!Number.isSafeInteger(reminderAt)) return sendError(reply,400,"invalid_reminder","Neispravan podsjetnik.");
-  db.prepare("INSERT INTO tasks(id,user_id,list_id,title,completed,reminder_at,position,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)").run(taskId,userId,list.id,title,0,reminderAt,position,at,at);
+  db.prepare("INSERT INTO tasks(id,user_id,list_id,title,completed,reminder_at,position,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)").run(taskId,userId,list.id,title,completed,reminderAt,position,at,at);
   db.prepare("UPDATE todo_lists SET updated_at=? WHERE id=?").run(at,list.id);
   logChange(userId,"task",taskId); logChange(userId,"todo_list",list.id);
-  return reply.code(201).send({task:{id:taskId,title,completed:false,position,reminderAt,createdAt:at,updatedAt:at,listId:list.id}});
+  return reply.code(201).send({task:{id:taskId,title,completed:!!completed,position,reminderAt,createdAt:at,updatedAt:at,listId:list.id}});
 });
 app.patch("/api/v1/tasks/:id", async (request,reply) => {
   const userId=request.auth.userId,task=ownTask(userId,request.params.id);

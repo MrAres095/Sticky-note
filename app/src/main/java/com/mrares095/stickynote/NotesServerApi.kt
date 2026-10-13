@@ -77,8 +77,18 @@ class NotesServerApi(private val context: Context) {
             .put("categoryId", categoryId ?: JSONObject.NULL).put("archived", archived), requiredToken())
 
     @Throws(IOException::class)
-    fun createTask(listId: String, title: String): JSONObject =
-        request("POST", "todos/${safeId(listId)}/tasks", JSONObject().put("title", title), requiredToken())
+    fun createTask(
+        listId: String,
+        title: String,
+        completed: Boolean = false,
+        reminderAt: Long? = null
+    ): JSONObject = request(
+        "POST",
+        "todos/${safeId(listId)}/tasks",
+        JSONObject().put("title", title).put("completed", completed)
+            .put("reminderAt", reminderAt ?: JSONObject.NULL),
+        requiredToken()
+    )
 
     @Throws(IOException::class)
     fun updateTask(taskId: String, patch: JSONObject): JSONObject =

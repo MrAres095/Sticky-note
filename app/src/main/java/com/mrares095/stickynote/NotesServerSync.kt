@@ -174,9 +174,12 @@ internal object NotesServerSync {
                     }
                 }
                 if (rt == null) {
-                    val created = api.createTask(serverListId, task.title).optJSONObject("task")
+                    val created = api.createTask(serverListId, task.title, task.completed, task.reminderAt).optJSONObject("task")
                         ?: throw IOException("Server nije vratio zadatak.")
-                    taskMap[task.id.toString()] = created.optString("id")
+                    val createdId = created.optString("id")
+                    if (createdId.isBlank()) throw IOException("Zadatak nema ID na serveru.")
+                    taskMap[task.id.toString()] = createdId
+                    matchedTaskIds.add(createdId)
                     taskCount++
                 } else {
                     remoteTaskId = rt.optString("id")
@@ -231,6 +234,7 @@ internal object NotesServerSync {
     private fun noteBody(n: Note, categoryId: String?): JSONObject = JSONObject()
         .put("title", n.title).put("text", n.text)
         .put("categoryId", categoryId ?: JSONObject.NULL)
+        .put("color", String.format(java.util.Locale.ROOT, "#%08X", n.color))
         .put("favorite", n.favorite).put("pinned", n.pinned)
         .put("archived", n.archived).put("trashed", n.trashed)
         .put("reminderAt", n.reminderAt ?: JSONObject.NULL)
