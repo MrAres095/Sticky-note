@@ -357,6 +357,7 @@ class MainActivity : ComponentActivity() {
     private var pendingOpenNoteId: Long? by mutableStateOf(null)
     private var pendingOpenTodoListId: String? by mutableStateOf(null)
     private var driveAccessToken: String? by mutableStateOf(null)
+    private var appRefreshKey by mutableIntStateOf(0)
     private var driveStatusMessage by mutableStateOf<String?>(null)
     private var syncAfterAuthorization = false
 
@@ -385,6 +386,7 @@ class MainActivity : ComponentActivity() {
         pendingOpenNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
         pendingOpenTodoListId = intent.getStringExtra("open_todo_list_id")
         setContent {
+            key(appRefreshKey) {
             StickyNoteApp(
                 context = this,
                 driveConnected = driveAccessToken != null,
@@ -399,6 +401,7 @@ class MainActivity : ComponentActivity() {
                 openTodoListId = pendingOpenTodoListId,
                 onOpenTodoListHandled = { pendingOpenTodoListId = null }
             )
+            }
         }
     }
 
