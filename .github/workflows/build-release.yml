@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/android-server-client
+      - feature/sync-hardening
   workflow_dispatch:
 
 permissions:
@@ -135,7 +136,7 @@ jobs:
           name: Sticky & Note v${{ steps.version.outputs.version_name }}
           body: |
             Automatski potpisani APK za commit ${{ github.sha }}.
-            ${{ github.ref_name != 'main' && 'TESTNO IZDANJE: povezivanje računa/API-ja; sinkronizacija svih lokalnih bilješki još nije uključena.' || 'Stabilno izdanje.' }}
+            ${{ github.ref_name != 'main' && 'TESTNO IZDANJE: uključena je ručna eksperimentalna sinkronizacija bilješki i todo-lista. Obavezno provjerite podatke na oba uređaja; privici/slike ostaju lokalni i sinkronizacija još nije potvrđena E2E.' || 'Stabilno izdanje.' }}
           files: app/build/outputs/apk/release/*.apk
           generate_release_notes: true
           prerelease: ${{ github.ref_name != 'main' }}
