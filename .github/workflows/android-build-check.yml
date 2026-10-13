@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - feature/android-server-client
   push:
     branches:
       - feature/android-server-client
