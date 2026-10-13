@@ -413,78 +413,39 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun importKeepTakeout(uri: Uri) {
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {
+            // Some document providers do not support persistable grants; the import is immediate.
+        }
         showDriveMessage("Čitam Google Keep ZIP…")
         thread {
             try {
                 val existing = loadNotes(this)
-                val existingKeys = existing.mapNotNull { it.keepId }.toMutableSet()
-                val category = loadCategories(this).firstOrNull { it != "Sve" && it != "🗑 Otpad" } ?: "Osobno"
-                val imported = mutableListOf<Note>()
-                var found = 0
-                contentResolver.openInputStream(uri).use { input ->
-                    requireNotNull(input) { "Ne mogu otvoriti odabranu ZIP datoteku." }
-                    ZipInputStream(input).use { zip ->
-                        while (true) {
-                            val entry = zip.nextEntry ?: break
-                            if (!entry.isDirectory && entry.name.startsWith("Takeout/Keep/") &&
-                                entry.name.endsWith(".json", ignoreCase = true)) {
-                                val obj = JSONObject(zip.readBytes().toString(Charsets.UTF_8))
-                                found++
-                                val sourceKey = "takeout:" + entry.name
-                                if (existingKeys.add(sourceKey)) {
-                                    val title = obj.optString("title").trim()
-                                    val body = obj.optString("textContent")
-                                    val displayTitle = title.ifBlank {
-                                        body.lineSequence().firstOrNull { it.isNotBlank() }
-                                            ?.take(80)?.takeIf { it.isNotBlank() } ?: "Bilješka iz Google Keepa"
-                                    }
-                                    val timestamp = (obj.optLong("userEditedTimestampUsec", 0L)
-                                        .takeIf { it > 0L } ?: obj.optLong("createdTimestampUsec", 0L))
-                                    val updated = timestamp.takeIf { it > 0L }?.div(1000L)
-                                        ?: System.currentTimeMillis()
-                                    val color = when (obj.optString("color").uppercase()) {
-                                        "RED" -> 0xFFB3261E
-                                        "ORANGE" -> 0xFFB85C00
-                                        "YELLOW" -> 0xFF8A6D00
-                                        "GREEN" -> 0xFF386A20
-                                        "TEAL" -> 0xFF006A60
-                                        "BLUE" -> 0xFF315DA8
-                                        "DARK_BLUE" -> 0xFF344767
-                                        "PURPLE" -> 0xFF6750A4
-                                        "PINK" -> 0xFF984061
-                                        "BROWN" -> 0xFF795548
-                                        "GRAY" -> 0xFF5F6368
-                                        else -> 0xFF252525
-                                    }
-                                    imported += Note(
-                                        id = ((existing + imported).maxOfOrNull { it.id } ?: 0L) + 1L,
-                                        title = displayTitle,
-                                        text = body,
-                                        category = category,
-                                        color = color,
-                                        pinned = obj.optBoolean("isPinned", false),
-                                        keepId = sourceKey,
-                                        updatedAt = updated,
-                                        trashed = obj.optBoolean("isTrashed", false),
-                                        archived = obj.optBoolean("isArchived", false)
-                                    )
-                                }
-                            }
-                            zip.closeEntry()
-                        }
-                    }
-                }
-                if (found == 0) throw IllegalArgumentException("U ZIP-u nisam pronašao bilješke u mapi Takeout/Keep.")
+                val result = GoogleKeepTakeoutImporter.read(this, uri, existing)
+                val imported = result.notes
+                val categories = (loadCategories(this) + imported.map { it.category })
+                    .distinct()
                 runOnUiThread {
                     if (imported.isNotEmpty()) {
                         saveNotes(this, existing + imported)
-                        val cats = loadCategories(this).toMutableList()
-                        if (!cats.contains(category)) { cats.add(category); saveCategories(this, cats) }
+                        saveCategories(this, categories)
+                        appRefreshKey++
                     }
-                    showDriveMessage("Google Keep uvoz završen. Pronađeno: $found. Uvezeno: ${imported.size}. Preskočeno kao već uvezeno: ${found - imported.size}.\n\nNapomena: privici/slike i podaci pojedinačnih zadataka iz Keep izvoza još se ne prenose u cijelosti.")
+                    val errorSummary = if (result.errors.isEmpty()) "" else
+                        "\\nNepročitane datoteke: ${result.errors.size}."
+                    showDriveMessage(
+                        "Google Keep uvoz završen.\\n" +
+                            "Uvezeno: ${imported.size}.\\n" +
+                            "Preskočeno (duplikati/prazne datoteke): ${result.skippedFiles}." +
+                            errorSummary +
+                            "\\n\\nPostojeće bilješke nisu obrisane. Slike i privici još se ne prenose."
+                    )
                 }
             } catch (e: Exception) {
-                runOnUiThread { showDriveMessage("Google Keep uvoz nije uspio: ${e.message ?: e.javaClass.simpleName}") }
+                runOnUiThread {
+                    showDriveMessage("Google Keep uvoz nije uspio: ${e.message ?: e.javaClass.simpleName}")
+                }
             }
         }
     }
