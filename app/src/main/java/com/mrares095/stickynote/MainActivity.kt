@@ -45,6 +45,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.concurrent.thread
 import kotlinx.coroutines.delay
+import java.util.zip.ZipInputStream
 
 data class TodoTask(
     val id: Long,
@@ -359,6 +360,11 @@ class MainActivity : ComponentActivity() {
     private var driveStatusMessage by mutableStateOf<String?>(null)
     private var syncAfterAuthorization = false
 
+    private val keepTakeoutLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) importKeepTakeout(uri)
+        }
+
     private val authorizationLauncher =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
@@ -386,6 +392,7 @@ class MainActivity : ComponentActivity() {
                 onDismissMessage = { driveStatusMessage = null },
                 onConnectDrive = { authorizeDrive(false) },
                 onSyncDrive = { authorizeDrive(true) },
+                onImportKeep = { keepTakeoutLauncher.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
                 onCheckUpdate = { checkForUpdate() },
                 openNoteId = pendingOpenNoteId,
                 onOpenNoteHandled = { pendingOpenNoteId = null },
@@ -400,6 +407,83 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         pendingOpenNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
         pendingOpenTodoListId = intent.getStringExtra("open_todo_list_id")
+    }
+
+    private fun importKeepTakeout(uri: Uri) {
+        showDriveMessage("Čitam Google Keep ZIP…")
+        thread {
+            try {
+                val existing = loadNotes(this)
+                val existingKeys = existing.mapNotNull { it.keepId }.toMutableSet()
+                val category = loadCategories(this).firstOrNull { it != "Sve" && it != "🗑 Otpad" } ?: "Osobno"
+                val imported = mutableListOf<Note>()
+                var found = 0
+                contentResolver.openInputStream(uri).use { input ->
+                    requireNotNull(input) { "Ne mogu otvoriti odabranu ZIP datoteku." }
+                    ZipInputStream(input).use { zip ->
+                        while (true) {
+                            val entry = zip.nextEntry ?: break
+                            if (!entry.isDirectory && entry.name.startsWith("Takeout/Keep/") &&
+                                entry.name.endsWith(".json", ignoreCase = true)) {
+                                val obj = JSONObject(zip.readBytes().toString(Charsets.UTF_8))
+                                found++
+                                val sourceKey = "takeout:" + entry.name
+                                if (existingKeys.add(sourceKey)) {
+                                    val title = obj.optString("title").trim()
+                                    val body = obj.optString("textContent")
+                                    val displayTitle = title.ifBlank {
+                                        body.lineSequence().firstOrNull { it.isNotBlank() }
+                                            ?.take(80)?.ifBlank { null } ?: "Bilješka iz Google Keepa"
+                                    }
+                                    val timestamp = (obj.optLong("userEditedTimestampUsec", 0L)
+                                        .takeIf { it > 0L } ?: obj.optLong("createdTimestampUsec", 0L))
+                                    val updated = timestamp.takeIf { it > 0L }?.div(1000L)
+                                        ?: System.currentTimeMillis()
+                                    val color = when (obj.optString("color").uppercase()) {
+                                        "RED" -> 0xFFB3261E
+                                        "ORANGE" -> 0xFFB85C00
+                                        "YELLOW" -> 0xFF8A6D00
+                                        "GREEN" -> 0xFF386A20
+                                        "TEAL" -> 0xFF006A60
+                                        "BLUE" -> 0xFF315DA8
+                                        "DARK_BLUE" -> 0xFF344767
+                                        "PURPLE" -> 0xFF6750A4
+                                        "PINK" -> 0xFF984061
+                                        "BROWN" -> 0xFF795548
+                                        "GRAY" -> 0xFF5F6368
+                                        else -> 0xFF252525
+                                    }
+                                    imported += Note(
+                                        id = ((existing + imported).maxOfOrNull { it.id } ?: 0L) + 1L,
+                                        title = displayTitle,
+                                        text = body,
+                                        category = category,
+                                        color = color,
+                                        pinned = obj.optBoolean("isPinned", false),
+                                        keepId = sourceKey,
+                                        updatedAt = updated,
+                                        trashed = obj.optBoolean("isTrashed", false),
+                                        archived = obj.optBoolean("isArchived", false)
+                                    )
+                                }
+                            }
+                            zip.closeEntry()
+                        }
+                    }
+                }
+                if (found == 0) throw IllegalArgumentException("U ZIP-u nisam pronašao bilješke u mapi Takeout/Keep.")
+                runOnUiThread {
+                    if (imported.isNotEmpty()) {
+                        saveNotes(this, existing + imported)
+                        val cats = loadCategories(this).toMutableList()
+                        if (!cats.contains(category)) { cats.add(category); saveCategories(this, cats) }
+                    }
+                    showDriveMessage("Google Keep uvoz završen. Pronađeno: $found. Uvezeno: ${imported.size}. Preskočeno kao već uvezeno: ${found - imported.size}.\n\nNapomena: privici/slike i podaci pojedinačnih zadataka iz Keep izvoza još se ne prenose u cijelosti.")
+                }
+            } catch (e: Exception) {
+                runOnUiThread { showDriveMessage("Google Keep uvoz nije uspio: ${e.message ?: e.javaClass.simpleName}") }
+            }
+        }
     }
 
     private fun authorizeDrive(syncAfter: Boolean) {
@@ -539,6 +623,7 @@ fun StickyNoteApp(
     onDismissMessage: () -> Unit,
     onConnectDrive: () -> Unit,
     onSyncDrive: () -> Unit,
+    onImportKeep: () -> Unit,
     onCheckUpdate: () -> Unit,
     openNoteId: Long? = null,
     onOpenNoteHandled: () -> Unit = {},
@@ -734,6 +819,7 @@ fun StickyNoteApp(
                         
                         TextButton(onClick = onConnectDrive) { Text(if (driveConnected) "Google Drive ✓" else "Google Drive") }
                         TextButton(onClick = onSyncDrive) { Text("Sync") }
+                        TextButton(onClick = onImportKeep) { Text("Uvoz Keep") }
                         TextButton(onClick = {
                             serverUrlDraft = NotesServerConfig.baseUrl(context)
                             serverConfigError = null
