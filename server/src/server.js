@@ -79,7 +79,7 @@ app.post("/api/v1/auth/register", async (request,reply) => {
   const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
   const password = request.body?.password;
   if (!emailOk(email)) return sendError(reply,400,"invalid_email","Unesite valjanu e-mail adresu.");
-  if (typeof password !== "string" || password.length < 12 || password.length > 128) return sendError(reply,400,"invalid_password","Lozinka mora imati 12–128 znakova.");
+  if (typeof password !== "string" || password.length < 8 || password.length > 128) return sendError(reply,400,"invalid_password","Lozinka mora imati 8–128 znakova.");
   const userId = id(), createdAt = now();
   try { db.prepare("INSERT INTO users(id,email,password_hash,created_at) VALUES(?,?,?,?)").run(userId,email,await argon2.hash(password,{type:argon2.argon2id}),createdAt); }
   catch(e) { if (String(e.code).includes("CONSTRAINT")) return sendError(reply,409,"email_exists","Račun s tom e-mail adresom već postoji."); throw e; }
