@@ -45,6 +45,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.concurrent.thread
 import kotlinx.coroutines.delay
+import java.util.zip.ZipInputStream
 
 data class TodoTask(
     val id: Long,
@@ -356,8 +357,14 @@ class MainActivity : ComponentActivity() {
     private var pendingOpenNoteId: Long? by mutableStateOf(null)
     private var pendingOpenTodoListId: String? by mutableStateOf(null)
     private var driveAccessToken: String? by mutableStateOf(null)
+    private var appRefreshKey by mutableIntStateOf(0)
     private var driveStatusMessage by mutableStateOf<String?>(null)
     private var syncAfterAuthorization = false
+
+    private val keepTakeoutLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) importKeepTakeout(uri)
+        }
 
     private val authorizationLauncher =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -379,6 +386,7 @@ class MainActivity : ComponentActivity() {
         pendingOpenNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
         pendingOpenTodoListId = intent.getStringExtra("open_todo_list_id")
         setContent {
+            key(appRefreshKey) {
             StickyNoteApp(
                 context = this,
                 driveConnected = driveAccessToken != null,
@@ -386,12 +394,14 @@ class MainActivity : ComponentActivity() {
                 onDismissMessage = { driveStatusMessage = null },
                 onConnectDrive = { authorizeDrive(false) },
                 onSyncDrive = { authorizeDrive(true) },
+                onImportKeep = { keepTakeoutLauncher.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
                 onCheckUpdate = { checkForUpdate() },
                 openNoteId = pendingOpenNoteId,
                 onOpenNoteHandled = { pendingOpenNoteId = null },
                 openTodoListId = pendingOpenTodoListId,
                 onOpenTodoListHandled = { pendingOpenTodoListId = null }
             )
+            }
         }
     }
 
@@ -400,6 +410,44 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         pendingOpenNoteId = intent.getLongExtra("open_note_id", -1L).takeIf { it > 0L }
         pendingOpenTodoListId = intent.getStringExtra("open_todo_list_id")
+    }
+
+    private fun importKeepTakeout(uri: Uri) {
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {
+            // Some document providers do not support persistable grants; the import is immediate.
+        }
+        showDriveMessage("Čitam Google Keep ZIP…")
+        thread {
+            try {
+                val existing = loadNotes(this)
+                val result = GoogleKeepTakeoutImporter.read(this, uri, existing)
+                val imported = result.notes
+                val categories = (loadCategories(this) + imported.map { it.category })
+                    .distinct()
+                runOnUiThread {
+                    if (imported.isNotEmpty()) {
+                        saveNotes(this, existing + imported)
+                        saveCategories(this, categories)
+                        appRefreshKey++
+                    }
+                    val errorSummary = if (result.errors.isEmpty()) "" else
+                        "\\nNepročitane datoteke: ${result.errors.size}."
+                    showDriveMessage(
+                        "Google Keep uvoz završen.\\n" +
+                            "Uvezeno: ${imported.size}.\\n" +
+                            "Preskočeno (duplikati/prazne datoteke): ${result.skippedFiles}." +
+                            errorSummary +
+                            "\\n\\nPostojeće bilješke nisu obrisane. Slike i privici još se ne prenose."
+                    )
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    showDriveMessage("Google Keep uvoz nije uspio: ${e.message ?: e.javaClass.simpleName}")
+                }
+            }
+        }
     }
 
     private fun authorizeDrive(syncAfter: Boolean) {
@@ -539,6 +587,7 @@ fun StickyNoteApp(
     onDismissMessage: () -> Unit,
     onConnectDrive: () -> Unit,
     onSyncDrive: () -> Unit,
+    onImportKeep: () -> Unit,
     onCheckUpdate: () -> Unit,
     openNoteId: Long? = null,
     onOpenNoteHandled: () -> Unit = {},
@@ -734,6 +783,8 @@ fun StickyNoteApp(
                         
                         TextButton(onClick = onConnectDrive) { Text(if (driveConnected) "Google Drive ✓" else "Google Drive") }
                         TextButton(onClick = onSyncDrive) { Text("Sync") }
+                        TextButton(onClick = onImportKeep) { Text("Uvoz Keep") }
+                        TextButton(onClick = onCheckUpdate) { Text("Ažuriraj") }
                         TextButton(onClick = {
                             serverUrlDraft = NotesServerConfig.baseUrl(context)
                             serverConfigError = null

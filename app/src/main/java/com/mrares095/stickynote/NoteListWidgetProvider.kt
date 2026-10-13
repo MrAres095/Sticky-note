@@ -30,7 +30,7 @@ class NoteListWidgetProvider : AppWidgetProvider() {
             views.setEmptyView(R.id.widget_note_list_items, R.id.widget_empty)
             val open = PendingIntent.getActivity(
                 context, widgetId + 7000,
-                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             views.setPendingIntentTemplate(R.id.widget_note_list_items, open)

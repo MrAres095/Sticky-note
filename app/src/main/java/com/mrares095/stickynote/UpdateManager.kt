@@ -12,7 +12,7 @@ import java.net.URL
 import kotlin.concurrent.thread
 
 object UpdateManager {
-    private const val RELEASES_URL = "https://api.github.com/repos/MrAres095/Sticky-note/releases/latest"
+    private const val RELEASES_URL = "https://api.github.com/repos/MrAres095/Sticky-note/releases?per_page=20"
 
     fun check(context: Context, onResult: (String, String?) -> Unit) {
         thread {
@@ -24,24 +24,35 @@ object UpdateManager {
                 conn.readTimeout = 15000
                 val json = conn.inputStream.bufferedReader().use { it.readText() }
                 conn.disconnect()
-                val release = JSONObject(json)
-                val tag = release.optString("tag_name").removePrefix("v")
+                val releases = org.json.JSONArray(json)
                 val current = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.0.0"
-                if (!isNewer(tag, current)) {
-                    onResult("Aplikacija je već ažurirana (" + current + ").", null)
-                    return@thread
-                }
-                val assets = release.optJSONArray("assets")
-                var apkUrl: String? = null
-                if (assets != null) for (i in 0 until assets.length()) {
-                    val a = assets.getJSONObject(i)
-                    if (a.optString("name").endsWith(".apk", true)) {
-                        apkUrl = a.optString("browser_download_url")
-                        break
+                var bestTag: String? = null
+                var bestApkUrl: String? = null
+                for (releaseIndex in 0 until releases.length()) {
+                    val release = releases.optJSONObject(releaseIndex) ?: continue
+                    if (release.optBoolean("draft", false)) continue
+                    val tag = release.optString("tag_name").removePrefix("v")
+                    if (tag.isBlank() || !isNewer(tag, current)) continue
+                    if (bestTag != null && !isNewer(tag, bestTag)) continue
+                    val assets = release.optJSONArray("assets")
+                    var candidateUrl: String? = null
+                    if (assets != null) for (i in 0 until assets.length()) {
+                        val asset = assets.getJSONObject(i)
+                        if (asset.optString("name").endsWith(".apk", true)) {
+                            candidateUrl = asset.optString("browser_download_url").takeIf { it.isNotBlank() }
+                            break
+                        }
+                    }
+                    if (candidateUrl != null) {
+                        bestTag = tag
+                        bestApkUrl = candidateUrl
                     }
                 }
-                if (apkUrl == null) onResult("Nova verzija postoji (" + tag + "), ali APK nije pronađen.", null)
-                else onResult("Dostupna je nova verzija " + tag + ".", apkUrl)
+                if (bestTag == null || bestApkUrl == null) {
+                    onResult("Aplikacija je već ažurirana (" + current + ").", null)
+                } else {
+                    onResult("Dostupna je nova verzija " + bestTag + ".", bestApkUrl)
+                }
             } catch (e: Exception) {
                 onResult("Provjera ažuriranja nije uspjela: " + (e.message ?: "greška"), null)
             }
