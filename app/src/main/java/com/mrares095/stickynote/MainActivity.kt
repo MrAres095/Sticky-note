@@ -433,7 +433,7 @@ class MainActivity : ComponentActivity() {
                                     val body = obj.optString("textContent")
                                     val displayTitle = title.ifBlank {
                                         body.lineSequence().firstOrNull { it.isNotBlank() }
-                                            ?.take(80)?.ifBlank { null } ?: "Bilješka iz Google Keepa"
+                                            ?.take(80)?.takeIf { it.isNotBlank() } ?: "Bilješka iz Google Keepa"
                                     }
                                     val timestamp = (obj.optLong("userEditedTimestampUsec", 0L)
                                         .takeIf { it > 0L } ?: obj.optLong("createdTimestampUsec", 0L))
