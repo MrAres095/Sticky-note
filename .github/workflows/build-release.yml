@@ -37,86 +37,75 @@ jobs:
           KEY_PASSWORD: ${{ secrets.STICKY_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          test -n "$KEYSTORE_B64" || { echo "::error::Missing STICKY_KEYSTORE_BASE64"; exit 1; }
+          test -n "$KEYSTORE_PASSWORD" || { echo "::error::Missing STICKY_KEYSTORE_PASSWORD"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "::error::Missing STICKY_KEY_PASSWORD"; exit 1; }
+          test "$KEY_ALIAS" = "sticky-notes-release" || { echo "::error::STICKY_KEY_ALIAS must be sticky-notes-release"; exit 1; }
+
           mkdir -p "$HOME/.android"
           python3 - <<'PY'
           import base64, os
-          s = os.environ["KEYSTORE_B64"]
-          s = "".join(s.split())
-          # Normalize any existing padding before adding the exact required padding.
-          s = s.rstrip("=")
+          s = "".join(os.environ["KEYSTORE_B64"].split()).rstrip("=")
           s += "=" * ((4 - len(s) % 4) % 4)
           raw = base64.b64decode(s, validate=True)
           if len(raw) < 100:
               raise SystemExit("Decoded keystore is unexpectedly small")
           with open(os.path.expanduser("~/.android/sticky-notes-release.jks"), "wb") as f:
               f.write(raw)
-          print("Existing keystore decoded successfully:", len(raw), "bytes")
+          os.chmod(os.path.expanduser("~/.android/sticky-notes-release.jks"), 0o600)
+          print("Release keystore decoded.")
           PY
 
-          echo "Checking existing release keystore..."
           STORE_PASSWORD="$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '\r\n')"
           KEY_PASSWORD_CLEAN="$(printf '%s' "$KEY_PASSWORD" | tr -d '\r\n')"
-          echo "Keystore password length: ${#STORE_PASSWORD}"
-          echo "Key password length: ${#KEY_PASSWORD_CLEAN}"
-          if [ "$STORE_PASSWORD" = "$KEY_PASSWORD_CLEAN" ]; then
-            echo "Password secrets: identical"
-          else
-            echo "Password secrets: different"
-          fi
-          STORE_FP="$(printf "%s" "$STORE_PASSWORD" | sha256sum | cut -d" " -f1)"
-          KEY_FP="$(printf "%s" "$KEY_PASSWORD_CLEAN" | sha256sum | cut -d" " -f1)"
-          echo "Keystore secret fingerprint: ${STORE_FP:0:12}"
-          echo "Key secret fingerprint: ${KEY_FP:0:12}"
-          if keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" >/dev/null 2>&1; then
-            echo "Keystore password: MATCH"
-          elif keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$KEY_PASSWORD_CLEAN" >/dev/null 2>&1; then
-            echo "Keystore password: MATCHES KEY_PASSWORD secret"
-            STORE_PASSWORD="$KEY_PASSWORD_CLEAN"
-          else
-            echo "ERROR: Neither password secret matches the supplied release keystore."
-            echo "The keystore bytes are valid; the failure is specifically the password value."
-            exit 1
-          fi
-
-          if [ "$KEY_ALIAS" != "sticky-notes-release" ]; then
-            echo "ERROR: STICKY_KEY_ALIAS must be exactly sticky-notes-release"
-            exit 1
-          fi
           keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
-          echo "Existing keystore: OK"
-          echo "Alias: OK"
-          CERT_SHA1="$(keytool -list -v -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA1:/{print $2; exit}')"
           CERT_SHA256="$(keytool -list -v -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/{print $2; exit}')"
-          echo "Signing certificate SHA-1: $CERT_SHA1"
-          echo "Signing certificate SHA-256: $CERT_SHA256"
+          test -n "$CERT_SHA256" || { echo "::error::Could not read release certificate fingerprint"; exit 1; }
+
           {
-            echo "### Release signing certificate"
-            echo "- SHA-1: `$CERT_SHA1`"
-            echo "- SHA-256: `$CERT_SHA256`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          cat > keystore.properties <<EOF
-          storeFile=$HOME/.android/sticky-notes-release.jks
-          storePassword=$STORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD_CLEAN
-          EOF
-
-          echo "### Signing: PERSISTENT RELEASE KEY" >> "$GITHUB_STEP_SUMMARY"
-          echo "The existing Sticky & Note release keystore was accepted." >> "$GITHUB_STEP_SUMMARY"
+            echo "storeFile=$HOME/.android/sticky-notes-release.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD_CLEAN"
+          } > keystore.properties
+          chmod 600 keystore.properties
+          echo "RELEASE_CERT_SHA256=$CERT_SHA256" >> "$GITHUB_ENV"
+          echo "Release keystore and alias validated."
 
       - name: Set automatic app version
         id: version
         shell: bash
         run: |
-          VERSION_NAME="1.0.${{ github.run_number }}"
-          VERSION_CODE="${{ github.run_number }}"
-          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "version_name=1.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Build signed release APK
         run: |
           gradle --no-daemon :app:assembleRelease -PversionCode=${{ steps.version.outputs.version_code }} -PversionName=${{ steps.version.outputs.version_name }}
+
+      - name: Verify APK uses the original release certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)"
+          test -n "$APK" || { echo "::error::Release APK was not produced"; exit 1; }
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          test -x "$APKSIGNER" || { echo "::error::apksigner not found"; exit 1; }
+          "$APKSIGNER" verify --verbose "$APK"
+          ACTUAL_SHA256="$("$APKSIGNER" verify --print-certs "$APK" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print $2; exit}')"
+          test -n "$ACTUAL_SHA256" || { echo "::error::Could not read APK signing certificate"; exit 1; }
+          EXPECTED_NORMALIZED="$(printf '%s' "$RELEASE_CERT_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          ACTUAL_NORMALIZED="$(printf '%s' "$ACTUAL_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          if [ "$ACTUAL_NORMALIZED" != "$EXPECTED_NORMALIZED" ]; then
+            echo "::error::APK signer does not match the original release keystore. Refusing to publish."
+            exit 1
+          fi
+          echo "APK signature verified against the configured release certificate."
+          {
+            echo "### APK signing verification"
+            echo "- Result: passed"
+            echo "- Certificate SHA-256: `$RELEASE_CERT_SHA256`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish APK artifact
         uses: actions/upload-artifact@v4
@@ -134,5 +123,6 @@ jobs:
           name: Sticky & Note v${{ steps.version.outputs.version_name }}
           body: |
             Automatski build za commit ${{ github.sha }}.
+            APK je objavljen tek nakon provjere potpisa originalnim release certifikatom.
           files: app/build/outputs/apk/release/*.apk
           generate_release_notes: true
