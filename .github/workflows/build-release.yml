@@ -61,6 +61,14 @@ jobs:
           keytool -list -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
           CERT_SHA256="$(keytool -list -v -keystore "$HOME/.android/sticky-notes-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/{print $2; exit}')"
           test -n "$CERT_SHA256" || { echo "::error::Could not read release certificate fingerprint"; exit 1; }
+          EXPECTED_ORIGINAL_CERT_SHA256="A71FAF20BB2BDEE1B0C10F911F5F134C35977E8900DD4559CE7EB9A5107E58BD"
+          CONFIGURED_NORMALIZED="$(printf '%s' "$CERT_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          ORIGINAL_NORMALIZED="$(printf '%s' "$EXPECTED_ORIGINAL_CERT_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          if [ "$CONFIGURED_NORMALIZED" != "$ORIGINAL_NORMALIZED" ]; then
+            echo "::error::Configured keystore is not the original Sticky & Note release key."
+            echo "::error::Update GitHub Actions secret STICKY_KEYSTORE_BASE64 with the original keystore before publishing."
+            exit 1
+          fi
 
           {
             echo "storeFile=$HOME/.android/sticky-notes-release.jks"
@@ -92,9 +100,15 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
           test -x "$APKSIGNER" || { echo "::error::apksigner not found"; exit 1; }
           "$APKSIGNER" verify --verbose "$APK"
-          ACTUAL_SHA256="$("$APKSIGNER" verify --print-certs "$APK" 2>&1 | awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print $2; exit}')"
-          test -n "$ACTUAL_SHA256" || { echo "::error::Could not read APK signing certificate"; exit 1; }
-          EXPECTED_NORMALIZED="$(printf '%s' "$RELEASE_CERT_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          CERT_OUTPUT="$(keytool -printcert -jarfile "$APK" 2>&1)" || {
+            printf '%s\n' "$CERT_OUTPUT"
+            echo "::error::Could not read certificate embedded in the APK"
+            exit 1
+          }
+          printf '%s\n' "$CERT_OUTPUT"
+          ACTUAL_SHA256="$(printf '%s\n' "$CERT_OUTPUT" | awk -F': *' '/SHA256:/{print $2; exit}')"
+          test -n "$ACTUAL_SHA256" || { echo "::error::Could not parse APK signing certificate fingerprint"; exit 1; }
+          EXPECTED_NORMALIZED="$(printf '%s' "$EXPECTED_ORIGINAL_CERT_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
           ACTUAL_NORMALIZED="$(printf '%s' "$ACTUAL_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
           if [ "$ACTUAL_NORMALIZED" != "$EXPECTED_NORMALIZED" ]; then
             echo "::error::APK signer does not match the original release keystore. Refusing to publish."
