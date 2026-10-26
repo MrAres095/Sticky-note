@@ -92,7 +92,7 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
           test -x "$APKSIGNER" || { echo "::error::apksigner not found"; exit 1; }
           "$APKSIGNER" verify --verbose "$APK"
-          ACTUAL_SHA256="$("$APKSIGNER" verify --print-certs "$APK" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print $2; exit}')"
+          ACTUAL_SHA256="$("$APKSIGNER" verify --print-certs "$APK" 2>&1 | awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print $2; exit}')"
           test -n "$ACTUAL_SHA256" || { echo "::error::Could not read APK signing certificate"; exit 1; }
           EXPECTED_NORMALIZED="$(printf '%s' "$RELEASE_CERT_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
           ACTUAL_NORMALIZED="$(printf '%s' "$ACTUAL_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
